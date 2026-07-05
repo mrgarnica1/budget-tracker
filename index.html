@@ -329,6 +329,7 @@ button { font-family: inherit; }
   let cloudUser = null;         // firebase user (null = signed out)
   let cloudReady = false;       // SDK loaded ok
   let cloudUnsub = null;
+  let cloudLoaded = false;      // true once we've seen the cloud's current state
   let cloudPushTimer = null;
   let lastCloudStamp = 0;       // updatedAt of the newest state we've seen/written
   let applyingRemote = false;
@@ -342,12 +343,16 @@ button { font-family: inherit; }
         cloudUser = user;
         if (cloudUnsub) { cloudUnsub(); cloudUnsub = null; }
         cloudDoc = null;
+        cloudLoaded = false;
         if (user) {
           cloudDoc = firebase.firestore().collection('budgets').doc(user.uid);
           startCloudListener();
-          // Seed: push local only if the cloud doc doesn't exist or is older
+          // Seed: push local ONLY if the cloud doc doesn't exist yet.
+          // Never overwrite an existing cloud doc on sign-in — a fresh device
+          // with default data must pull from the cloud, not clobber it.
           cloudDoc.get().then(snap => {
-            if (!snap.exists || (snap.data().updatedAt || 0) < lastCloudStamp) pushCloud();
+            cloudLoaded = true;
+            if (!snap.exists) pushCloud();
           }).catch(e => console.warn('Cloud seed check failed', e));
         }
         if (sessionStorage.getItem(PIN_SESSION_KEY) === '1') renderApp();
@@ -365,7 +370,7 @@ button { font-family: inherit; }
       if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment' || e.code === 'auth/cancelled-popup-request')) {
         firebase.auth().signInWithRedirect(provider);
       } else if (e && e.code !== 'auth/popup-closed-by-user') {
-        showToast('✗ Sign-in failed', '#ef4444');
+        showToast('✗ Sign-in failed: ' + (e.code || e.message || 'unknown error'), '#ef4444');
         console.warn('Sign-in failed', e);
       }
     });
@@ -378,6 +383,7 @@ button { font-family: inherit; }
 
   function startCloudListener() {
       cloudUnsub = cloudDoc.onSnapshot(snap => {
+        if (!snap.metadata.fromCache) cloudLoaded = true;
         if (!snap.exists || snap.metadata.hasPendingWrites) return;
         const d = snap.data();
         if (!d.json || !(d.updatedAt > lastCloudStamp)) return;
@@ -402,11 +408,20 @@ button { font-family: inherit; }
     if (!cloudDoc || applyingRemote) return;
     clearTimeout(cloudPushTimer);
     cloudPushTimer = setTimeout(() => {
-      if (!cloudDoc) return;
+      if (!cloudDoc || !cloudLoaded) return; // don't write before we've read the cloud state
       const updatedAt = Date.now();
       lastCloudStamp = updatedAt;
       cloudDoc.set({ json: JSON.stringify({ checks: app.checks }), updatedAt })
-        .catch(e => console.warn('Cloud push failed', e));
+        .then(() => {
+          const ind = document.querySelector('[data-cloud-indicator]');
+          if (ind) { ind.textContent = '● synced · ' + ((cloudUser && cloudUser.email) || '').split('@')[0]; ind.style.color = '#10b981'; }
+        })
+        .catch(e => {
+          console.warn('Cloud push failed', e);
+          showToast('✗ Cloud save failed: ' + (e.code || e.message), '#ef4444');
+          const ind = document.querySelector('[data-cloud-indicator]');
+          if (ind) { ind.textContent = '⚠ cloud save failing'; ind.style.color = '#ef4444'; }
+        });
     }, 600);
   }
 
@@ -667,7 +682,7 @@ button { font-family: inherit; }
           localStorage.setItem(APP_KEY, val);
           overlay.remove();
           showToast('✓ Data imported — reloading…','#10b981');
-          setTimeout(()=>{ app={checks:[],currentCheckId:null}; loadApp(); renderApp(); },800);
+          setTimeout(()=>{ app={checks:[],currentCheckId:null}; loadApp(); saveApp(); renderApp(); },800);
         } catch(e){
           showToast('✗ Invalid data — check your JSON','#ef4444');
         }
