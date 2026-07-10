@@ -174,6 +174,33 @@
   .search::placeholder { color: var(--ink-3); }
   .search:focus { border-color: rgba(34,211,238,.4); }
 
+  /* ── Sticky scroll header (detail view) ── */
+  .sticky-bar {
+    position: fixed; left: 0; right: 0; top: -52px; z-index: 40;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 16px; font-size: 12px;
+    background: rgba(7,11,20,.88); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--card-border);
+    transition: top .18s ease;
+  }
+  .sticky-bar.show { top: 0; }
+  .sticky-bar .sb-dates { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+  .sticky-bar .sb-stats { color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sticky-bar b { color: var(--ink); font-weight: 700; }
+  .sticky-bar .pos { color: var(--good); }
+
+  /* ── Inactive bills ── */
+  .inactive-panel { margin-top: 12px; border-style: dashed; background: transparent; }
+  .inactive-panel .hint { font-size: 11px; color: var(--ink-3); }
+  .bill.off { opacity: .5; }
+  .bill.off:hover { opacity: .8; }
+  .bill .act {
+    width: 26px; height: 26px; border-radius: 99px; flex-shrink: 0; cursor: pointer; position: relative;
+    border: 1.5px solid rgba(52,211,153,.5); color: var(--good); background: transparent;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1;
+  }
+  .bill .act::after { content: ''; position: absolute; inset: -9px; border-radius: 99px; }
+
   /* ── Interaction states (consistent across all controls) ── */
   .btn-new:hover, .btn-add:hover, .btn-save:hover { filter: brightness(1.12); }
   .icon-btn:hover, .btn-back:hover, .fchip:not(.on):hover, .seg button:not(.on):hover, .btn-ghost:hover { border-color: rgba(148,163,184,.35); color: var(--ink); }
@@ -260,17 +287,30 @@
           <div class="legend" id="d-legend"></div>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-head">
-          <span class="t">Active bills<small id="d-count"></small></span>
-          <button class="btn-add" onclick="openBillModal(null)">+ Add Bill</button>
+      <div>
+        <div class="panel">
+          <div class="panel-head">
+            <span class="t">Active bills<small id="d-count"></small></span>
+            <button class="btn-add" onclick="openBillModal(null)">+ Add Bill</button>
+          </div>
+          <div class="filters" id="d-filters"></div>
+          <div class="filters"><input class="search" id="d-search" placeholder="Search bills…" oninput="q=this.value;renderBills()" /></div>
+          <div id="d-bills"></div>
         </div>
-        <div class="filters" id="d-filters"></div>
-        <div class="filters"><input class="search" id="d-search" placeholder="Search bills…" oninput="q=this.value;renderBills()" /></div>
-        <div id="d-bills"></div>
+        <div class="panel inactive-panel">
+          <div class="panel-head">
+            <span class="t" style="color:var(--ink-2);">Inactive<small id="d-icount"></small></span>
+            <span class="hint">tap ⊕ to activate</span>
+          </div>
+          <div id="d-inactive"></div>
+        </div>
       </div>
     </div>
   </div>
+</div>
+<div class="sticky-bar" id="d-sticky">
+  <span class="sb-dates" id="sb-dates">Jul 4 → Jul 17 · #6</span>
+  <span class="sb-stats" id="sb-stats"></span>
 </div>
 <div id="toast"></div>
 <div id="modal-root"></div>
@@ -304,6 +344,15 @@
     { name:'Robinhood',           bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true,  due:null },
   ];
   const TCOL = Object.fromEntries(TYPES);
+  const INACTIVE = [
+    { name:'SFCU CC/Overdraft', bank:'Schools First', type:'CC',           amt:0,   auto:false, dueDay:2  },
+    { name:'M3 Car Payment',    bank:'Schools First', type:'Loan',         amt:350, auto:true,  dueDay:3  },
+    { name:'AT&T',              bank:'Schools First', type:'Bills',        amt:66,  auto:true,  dueDay:18 },
+    { name:'Best Buy',          bank:'Schools First', type:'CC',           amt:50,  auto:true,  dueDay:18 },
+    { name:'Paypal',            bank:'Schools First', type:'CC',           amt:100, auto:false, dueDay:20 },
+    { name:'Hulu',              bank:'Amex',          type:'Subscription', amt:3,   auto:true,  dueDay:21 },
+    { name:'Electricity',       bank:'Schools First', type:'Bills',        amt:172, auto:true,  dueDay:23 },
+  ];
   const INCOME = [{ label: 'Dad', amt: 3106 }, { label: 'Mom', amt: 2339 }];
   let curCheck = null, filter = 'all', q = '';
 
@@ -315,10 +364,48 @@
     return '';
   }
 
+  function renderInactive() {
+    document.getElementById('d-inactive').innerHTML = INACTIVE.map((b, j) => `
+      <div class="bill off">
+        <div class="bar-ind" style="background:${TCOL[b.type]}"></div>
+        <div class="info">
+          <div class="name">${b.name}</div>
+          <div class="meta">${b.bank}${b.auto ? ' · <span class="auto">AUTO</span>' : ''} · due ~${b.dueDay}</div>
+        </div>
+        <div class="amt">$${b.amt.toLocaleString()}</div>
+        <button class="act" title="Activate" onclick="activateBill(${j})">⊕</button>
+      </div>`).join('');
+    document.getElementById('d-icount').textContent = INACTIVE.length + ' bills';
+  }
+  function activateBill(j) {
+    const b = INACTIVE.splice(j, 1)[0];
+    BILLS.push({ name: b.name, bank: b.bank, type: b.type, amt: b.amt, auto: b.auto, paid: false, due: b.dueDay - 10 });
+    renderBills(); renderInactive(); renderTiles();
+    const t = document.getElementById('toast');
+    t.innerHTML = `${b.name} activated`;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  function renderSticky() {
+    const c = curCheck;
+    const leftToPay = BILLS.filter(b => !b.paid).reduce((s, b) => s + b.amt, 0);
+    const rem = c.income - c.alloc;
+    document.getElementById('sb-dates').textContent = `${c.sd} → ${c.ed} · #${c.n}`;
+    document.getElementById('sb-stats').innerHTML =
+      `${BILLS.filter(b => !b.paid).length} unpaid · <b>$${leftToPay.toLocaleString()}</b> | left <b class="pos">$${rem.toLocaleString()}</b>`;
+  }
+  window.addEventListener('scroll', () => {
+    const on = curCheck && document.getElementById('screen-detail').style.display === 'block' && window.scrollY > 130;
+    document.getElementById('d-sticky').classList.toggle('show', !!on);
+  }, { passive: true });
+
   function renderTiles() {
     const c = curCheck;
     const leftToPay = BILLS.filter(b => !b.paid).reduce((s, b) => s + b.amt, 0);
     const rem = c.income - c.alloc;
+    renderSticky();
     document.getElementById('d-tiles').innerHTML = `
       <div class="tile"><div class="lbl">Left to pay</div><div class="val" style="color:${leftToPay > 0 ? 'var(--ink)' : 'var(--good)'}">$${leftToPay.toLocaleString()}</div><div class="sub">${BILLS.filter(b => !b.paid).length} unpaid bills</div></div>
       <div class="tile"><div class="lbl">Available</div><div class="val" style="color:${rem >= 0 ? 'var(--good)' : 'var(--bad)'}">$${Math.abs(rem).toLocaleString()}</div><div class="sub">${rem >= 0 ? 'unallocated' : 'over budget'}</div></div>
@@ -448,7 +535,7 @@
     filter = 'all';
     document.getElementById('d-title').textContent = 'Check #' + c.n;
     document.getElementById('d-dates').textContent = c.sd + ' → ' + c.ed;
-    renderTiles(); renderFilters(); renderBills();
+    renderTiles(); renderFilters(); renderBills(); renderInactive();
     document.getElementById('d-bar').innerHTML = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
       `<span style="width:${(c.by[t]/c.income*100).toFixed(1)}%;background:${col}" title="${t} $${c.by[t]}"></span>`).join('');
     document.getElementById('d-legend').innerHTML = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
@@ -460,6 +547,7 @@
   function goHome() {
     document.getElementById('screen-detail').style.display = 'none';
     document.getElementById('screen-home').style.display = 'block';
+    document.getElementById('d-sticky').classList.remove('show');
   }
 
   document.getElementById('grid').innerHTML = CHECKS.map(c => {
