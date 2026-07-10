@@ -31,6 +31,7 @@
     color: var(--ink);
     min-height: 100vh;
     font-variant-numeric: tabular-nums;
+    overflow-x: hidden;
   }
   .glow {
     position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -123,8 +124,9 @@
   .today .val { font-size: 13px; font-weight: 700; background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
   /* stat tiles: 3-up on phone, part of a wider grid on desktop */
-  .d-layout { display: grid; gap: 10px; }
-  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px 14px; }
+  .d-layout { display: grid; gap: 12px; }
+  .d-side { display: grid; gap: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
   .tile { background: var(--card); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 12px; }
   .tile .lbl { font-size: 10px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tile .val { font-size: 19px; font-weight: 800; margin-top: 4px; letter-spacing: -.02em; }
@@ -168,7 +170,7 @@
   #toast.show { transform: translate(-50%, 0); }
   #toast button { border: 0; background: transparent; color: var(--accent-b); font-weight: 800; font-size: 12px; margin-left: 10px; cursor: pointer; letter-spacing: .06em; }
 
-  .search { flex: 1; min-width: 0; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px; color: var(--ink); font-size: 12px; padding: 6px 10px; outline: none; }
+  .search { flex: 1; min-width: 0; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px; color: var(--ink); font-size: 16px; padding: 7px 12px; outline: none; }
   .search::placeholder { color: var(--ink-3); }
   .search:focus { border-color: rgba(34,211,238,.4); }
 
@@ -186,7 +188,7 @@
   .m-title { font-size: 16px; font-weight: 800; }
   .m-close { border: 0; background: transparent; color: var(--ink-3); font-size: 18px; cursor: pointer; padding: 2px 6px; }
   .f-lbl { font-size: 10px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; margin: 12px 0 5px; }
-  .inp { width: 100%; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px; color: var(--ink); font-size: 14px; padding: 10px 12px; outline: none; }
+  .inp { width: 100%; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px; color: var(--ink); font-size: 16px; padding: 10px 12px; outline: none; }
   .inp:focus { border-color: rgba(34,211,238,.4); }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .seg { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -210,7 +212,7 @@
   /* desktop: tiles + allocation panel side by side, bills full width */
   @media (min-width: 900px) {
     .d-layout { grid-template-columns: 320px 1fr; align-items: start; }
-    .d-side { position: sticky; top: 16px; display: grid; gap: 10px; }
+    .d-side { position: sticky; top: 16px; }
     .tiles { grid-template-columns: 1fr; }
   }
 </style>
