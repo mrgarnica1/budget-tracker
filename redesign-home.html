@@ -167,6 +167,39 @@
   #toast.show { transform: translate(-50%, 0); }
   #toast button { border: 0; background: transparent; color: var(--accent-b); font-weight: 800; font-size: 12px; margin-left: 10px; cursor: pointer; letter-spacing: .06em; }
 
+  .search { flex: 1; min-width: 0; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 7px; color: var(--ink); font-size: 12px; padding: 6px 10px; outline: none; }
+  .search::placeholder { color: var(--ink-3); }
+  .search:focus { border-color: rgba(34,211,238,.4); }
+
+  /* ── Modals ── */
+  .overlay { position: fixed; inset: 0; z-index: 60; background: rgba(4,8,16,.7); backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; }
+  .modal { width: 100%; max-width: 440px; background: linear-gradient(180deg, #131d31, #0c1322); border: 1px solid var(--card-border); border-radius: 14px 14px 0 0; padding: 16px 16px 22px; }
+  @media (min-width: 600px) { .overlay { align-items: center; } .modal { border-radius: 12px; } }
+  .m-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .m-title { font-size: 15px; font-weight: 800; }
+  .m-close { border: 0; background: transparent; color: var(--ink-3); font-size: 18px; cursor: pointer; padding: 2px 6px; }
+  .f-lbl { font-size: 9.5px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; margin: 12px 0 5px; }
+  .inp { width: 100%; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px; color: var(--ink); font-size: 14px; padding: 10px 12px; outline: none; }
+  .inp:focus { border-color: rgba(34,211,238,.4); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+  .seg button { cursor: pointer; font-size: 11px; font-weight: 600; padding: 6px 11px; border-radius: 7px; background: var(--chip-bg); border: 1px solid var(--card-border); color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+  .seg button.on { color: var(--ink); border-color: rgba(34,211,238,.45); background: rgba(34,211,238,.08); }
+  .seg .sw { width: 7px; height: 7px; border-radius: 2px; }
+  .switch { display: flex; align-items: center; justify-content: space-between; background: var(--chip-bg); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 12px; font-size: 13px; cursor: pointer; }
+  .knob { width: 34px; height: 20px; border-radius: 99px; background: rgba(148,163,184,.25); position: relative; transition: background .15s; }
+  .knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 99px; background: #dfe7f3; transition: left .15s; }
+  .switch.on .knob { background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); }
+  .switch.on .knob::after { left: 16px; }
+  .m-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .btn-save { flex: 1; border: 0; cursor: pointer; color: #04121f; font-weight: 800; font-size: 13px; padding: 12px; border-radius: 9px; background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); }
+  .btn-ghost { border: 1px solid var(--card-border); background: transparent; color: var(--ink-2); font-size: 13px; font-weight: 600; padding: 12px 16px; border-radius: 9px; cursor: pointer; }
+  .btn-danger { border: 1px solid rgba(248,113,113,.4); background: rgba(248,113,113,.08); color: var(--bad); font-size: 13px; font-weight: 600; padding: 12px 16px; border-radius: 9px; cursor: pointer; }
+  .inc-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .inc-row .inp { flex: 1; }
+  .inc-total { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-2); border-top: 1px solid rgba(148,163,184,.12); padding-top: 10px; margin-top: 4px; }
+  .inc-total b { color: var(--good); font-size: 15px; }
+
   /* desktop: tiles + allocation panel side by side, bills full width */
   @media (min-width: 900px) {
     .d-layout { grid-template-columns: 320px 1fr; align-items: start; }
@@ -221,15 +254,17 @@
       <div class="panel">
         <div class="panel-head">
           <span class="t">Active bills<small id="d-count"></small></span>
-          <button class="btn-add">+ Add Bill</button>
+          <button class="btn-add" onclick="openBillModal(null)">+ Add Bill</button>
         </div>
         <div class="filters" id="d-filters"></div>
+        <div class="filters"><input class="search" id="d-search" placeholder="Search bills…" oninput="q=this.value;renderBills()" /></div>
         <div id="d-bills"></div>
       </div>
     </div>
   </div>
 </div>
 <div id="toast"></div>
+<div id="modal-root"></div>
 
 <script>
   const TYPES = [
@@ -260,7 +295,8 @@
     { name:'Robinhood',           bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true,  due:null },
   ];
   const TCOL = Object.fromEntries(TYPES);
-  let curCheck = null, filter = 'all';
+  const INCOME = [{ label: 'Dad', amt: 3106 }, { label: 'Mom', amt: 2339 }];
+  let curCheck = null, filter = 'all', q = '';
 
   function dueTag(b) {
     if (b.paid || b.due === null) return '';
@@ -277,7 +313,7 @@
     document.getElementById('d-tiles').innerHTML = `
       <div class="tile"><div class="lbl">Left to pay</div><div class="val" style="color:${leftToPay > 0 ? 'var(--ink)' : 'var(--good)'}">$${leftToPay.toLocaleString()}</div><div class="sub">${BILLS.filter(b => !b.paid).length} unpaid bills</div></div>
       <div class="tile"><div class="lbl">Unallocated</div><div class="val" style="color:${rem >= 0 ? 'var(--good)' : 'var(--bad)'}">$${Math.abs(rem).toLocaleString()}</div><div class="sub">${rem >= 0 ? 'available' : 'over budget'}</div></div>
-      <div class="tile"><div class="lbl">Take-home</div><div class="val">$${c.income.toLocaleString()}</div><div class="sub">per check · tap to edit</div></div>`;
+      <div class="tile" onclick="openIncomeModal()" style="cursor:pointer;"><div class="lbl">Take-home</div><div class="val">$${c.income.toLocaleString()}</div><div class="sub">per check · tap to edit</div></div>`;
   }
 
   function renderFilters() {
@@ -286,20 +322,22 @@
   }
 
   function renderBills() {
+    const needle = q.trim().toLowerCase();
     const idx = BILLS.map((b, j) => j).filter(j =>
-      filter === 'all' || (filter === 'paid') === BILLS[j].paid);
+      (filter === 'all' || (filter === 'paid') === BILLS[j].paid) &&
+      (!needle || (BILLS[j].name + ' ' + BILLS[j].bank).toLowerCase().includes(needle)));
     // unpaid first (most urgent due date on top), paid sink to the bottom
     idx.sort((a, b) => (BILLS[a].paid - BILLS[b].paid) ||
       ((BILLS[a].due ?? 99) - (BILLS[b].due ?? 99)));
     document.getElementById('d-bills').innerHTML = idx.map(j => { const b = BILLS[j]; return `
-      <div class="bill ${b.paid ? 'done' : ''}">
+      <div class="bill ${b.paid ? 'done' : ''}" onclick="openBillModal(${j})">
         <div class="bar-ind" style="background:${TCOL[b.type]}"></div>
         <div class="info">
           <div class="name">${b.name} ${dueTag(b)}</div>
           <div class="meta">${b.bank}${b.auto ? ' · <span class="auto">AUTO</span>' : ''}</div>
         </div>
         <div class="amt">$${b.amt.toLocaleString()}</div>
-        <div class="tick" onclick="togglePaid(${j})">✓</div>
+        <div class="tick" onclick="event.stopPropagation();togglePaid(${j})">✓</div>
       </div>`; }).join('');
     document.getElementById('d-count').textContent = idx.length + ' of ' + curCheck.bills;
   }
@@ -314,6 +352,79 @@
     t.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+  }
+
+  /* ── Bill add/edit modal ── */
+  let editIdx = null, mType = 'Bills', mAuto = false;
+  function openBillModal(j) {
+    editIdx = j;
+    const b = j !== null ? BILLS[j] : { name: '', bank: '', type: 'Bills', amt: '', auto: false, due: null };
+    mType = b.type; mAuto = b.auto;
+    document.getElementById('modal-root').innerHTML = `
+    <div class="overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <div class="m-head"><span class="m-title">${j !== null ? 'Edit bill' : 'New bill'}</span><button class="m-close" onclick="closeModal()">✕</button></div>
+        <div class="f-lbl">Name</div><input class="inp" id="m-name" value="${b.name}" placeholder="e.g. Electricity" />
+        <div class="row2">
+          <div><div class="f-lbl">Amount</div><input class="inp" id="m-amt" type="number" inputmode="decimal" value="${b.amt}" placeholder="0" /></div>
+          <div><div class="f-lbl">Due day</div><input class="inp" id="m-due" type="number" inputmode="numeric" min="1" max="31" value="${b.due !== null ? 10 + b.due : ''}" placeholder="none" /></div>
+        </div>
+        <div class="f-lbl">Bank</div><input class="inp" id="m-bank" value="${b.bank}" placeholder="e.g. Chase" />
+        <div class="f-lbl">Type</div>
+        <div class="seg" id="m-type">${TYPES.map(([t,col]) =>
+          `<button class="${mType === t ? 'on' : ''}" onclick="mType='${t}';[...this.parentNode.children].forEach(x=>x.classList.remove('on'));this.classList.add('on')"><span class="sw" style="background:${col}"></span>${t}</button>`).join('')}</div>
+        <div class="f-lbl">Autopay</div>
+        <div class="switch ${mAuto ? 'on' : ''}" onclick="mAuto=!mAuto;this.classList.toggle('on')"><span>Pays automatically</span><span class="knob"></span></div>
+        <div class="m-actions">
+          ${j !== null ? '<button class="btn-danger" onclick="deleteBill()">Delete</button>' : ''}
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn-save" onclick="saveBill()">${j !== null ? 'Save' : 'Add bill'}</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  function saveBill() {
+    const name = document.getElementById('m-name').value.trim() || 'Untitled';
+    const amt = parseFloat(document.getElementById('m-amt').value) || 0;
+    const bank = document.getElementById('m-bank').value.trim();
+    const dueRaw = document.getElementById('m-due').value;
+    const due = dueRaw === '' ? null : parseInt(dueRaw) - 10; // mock: today is the 10th
+    const patch = { name, amt, bank, due, type: mType, auto: mAuto };
+    if (editIdx !== null) Object.assign(BILLS[editIdx], patch);
+    else BILLS.push(Object.assign({ paid: false }, patch));
+    closeModal(); renderBills(); renderTiles();
+  }
+  function deleteBill() {
+    BILLS.splice(editIdx, 1);
+    closeModal(); renderBills(); renderTiles();
+  }
+  function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
+
+  /* ── Income modal ── */
+  function openIncomeModal() {
+    document.getElementById('modal-root').innerHTML = `
+    <div class="overlay" onclick="if(event.target===this)closeModal()">
+      <div class="modal">
+        <div class="m-head"><span class="m-title">Take-home per check</span><button class="m-close" onclick="closeModal()">✕</button></div>
+        ${INCOME.map((s, k) => `
+          <div class="inc-row">
+            <input class="inp" value="${s.label}" onchange="INCOME[${k}].label=this.value" />
+            <input class="inp" type="number" inputmode="decimal" value="${s.amt}" oninput="INCOME[${k}].amt=parseFloat(this.value)||0;updIncTotal()" />
+          </div>`).join('')}
+        <div class="inc-total"><span>Total per check</span><b id="inc-total">$${INCOME.reduce((s, x) => s + x.amt, 0).toLocaleString()}</b></div>
+        <div class="m-actions">
+          <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+          <button class="btn-save" onclick="saveIncome()">Save</button>
+        </div>
+      </div>
+    </div>`;
+  }
+  function updIncTotal() {
+    document.getElementById('inc-total').textContent = '$' + INCOME.reduce((s, x) => s + x.amt, 0).toLocaleString();
+  }
+  function saveIncome() {
+    curCheck.income = INCOME.reduce((s, x) => s + x.amt, 0);
+    closeModal(); renderTiles();
   }
 
   function undoToggle(j) {
