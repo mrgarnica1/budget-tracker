@@ -151,6 +151,23 @@
   .bill.done .name { color: var(--ink-3); text-decoration: line-through; }
   .bill.done .amt { color: var(--ink-3); }
 
+  .due-tag { font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 2px 6px; border-radius: 5px; vertical-align: 1px; white-space: nowrap; }
+  .due-tag.soon { color: #fbbf24; background: rgba(251,191,36,.12); border: 1px solid rgba(251,191,36,.3); }
+  .due-tag.over { color: #f87171; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.35); }
+
+  .filters { display: flex; gap: 6px; margin-bottom: 8px; }
+  .fchip { cursor: pointer; font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 7px; background: var(--chip-bg); border: 1px solid var(--card-border); color: var(--ink-2); }
+  .fchip.on { color: #04121f; background: linear-gradient(135deg, var(--accent-a), var(--accent-b)); border-color: transparent; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 70px); z-index: 50;
+    background: #16233b; border: 1px solid rgba(34,211,238,.35); color: var(--ink);
+    font-size: 12.5px; padding: 10px 14px; border-radius: 9px; white-space: nowrap;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5); transition: transform .2s ease; pointer-events: auto;
+  }
+  #toast.show { transform: translate(-50%, 0); }
+  #toast button { border: 0; background: transparent; color: var(--accent-b); font-weight: 800; font-size: 12px; margin-left: 10px; cursor: pointer; letter-spacing: .06em; }
+
   /* desktop: tiles + allocation panel side by side, bills full width */
   @media (min-width: 900px) {
     .d-layout { grid-template-columns: 320px 1fr; align-items: start; }
@@ -207,11 +224,13 @@
           <span class="t">Active bills<small id="d-count"></small></span>
           <button class="btn-add">+ Add Bill</button>
         </div>
+        <div class="filters" id="d-filters"></div>
         <div id="d-bills"></div>
       </div>
     </div>
   </div>
 </div>
+<div id="toast"></div>
 
 <script>
   const TYPES = [
@@ -226,46 +245,95 @@
     { n:2, sd:'May 9',  ed:'May 22', income:5445, alloc:5405, paid:23, bills:23, all:true,  by:{Loan:3739, CC:915,  Subscription:66,  Bills:585, Investment:100} },
     { n:1, sd:'Apr 24', ed:'May 8',  income:5435, alloc:5391, paid:24, bills:24, all:true,  by:{Loan:3516, CC:1250, Subscription:53,  Bills:472, Investment:100} },
   ];
+  // due = days from today (Jul 10) to due date; null = no fixed due day
   const BILLS = [
-    { name:'Mortgage',            bank:'Chase',          type:'Loan',         amt:1600, auto:false, paid:false },
-    { name:'Baby Sitting',        bank:'Schools First',  type:'Bills',        amt:600,  auto:false, paid:false },
-    { name:'Apple Wallet',        bank:'Apple',          type:'CC',           amt:400,  auto:false, paid:true  },
-    { name:'Capital One X (9806)',bank:'Capital One X',  type:'CC',           amt:400,  auto:true,  paid:false },
-    { name:'MY Car Payment',      bank:'Schools First',  type:'Loan',         amt:500,  auto:true,  paid:true  },
-    { name:'Vanguard',            bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true  },
-    { name:'SoFi Loan 21k',       bank:'Schools First',  type:'Loan',         amt:250,  auto:true,  paid:false },
-    { name:'Sam’s Club',     bank:'Schools First',  type:'CC',           amt:300,  auto:true,  paid:false },
-    { name:'Tesla Insurance MY',  bank:'Apple',          type:'Bills',        amt:295,  auto:true,  paid:false },
-    { name:'UFC Monthly Fee',     bank:'Amex',           type:'Subscription', amt:19,   auto:true,  paid:false },
-    { name:'Netflix',             bank:'Capital One',    type:'Subscription', amt:5,    auto:true,  paid:false },
-    { name:'Robinhood',           bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true  },
+    { name:'Mortgage',            bank:'Chase',          type:'Loan',         amt:1600, auto:false, paid:false, due:5    },
+    { name:'Baby Sitting',        bank:'Schools First',  type:'Bills',        amt:600,  auto:false, paid:false, due:null },
+    { name:'Apple Wallet',        bank:'Apple',          type:'CC',           amt:400,  auto:false, paid:true,  due:null },
+    { name:'Capital One X (9806)',bank:'Capital One X',  type:'CC',           amt:400,  auto:true,  paid:false, due:1    },
+    { name:'MY Car Payment',      bank:'Schools First',  type:'Loan',         amt:500,  auto:true,  paid:true,  due:null },
+    { name:'Vanguard',            bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true,  due:null },
+    { name:'SoFi Loan 21k',       bank:'Schools First',  type:'Loan',         amt:250,  auto:true,  paid:false, due:-4   },
+    { name:'Sam’s Club',     bank:'Schools First',  type:'CC',           amt:300,  auto:true,  paid:false, due:2    },
+    { name:'Tesla Insurance MY',  bank:'Apple',          type:'Bills',        amt:295,  auto:true,  paid:false, due:3    },
+    { name:'UFC Monthly Fee',     bank:'Amex',           type:'Subscription', amt:19,   auto:true,  paid:false, due:6    },
+    { name:'Netflix',             bank:'Capital One',    type:'Subscription', amt:5,    auto:true,  paid:false, due:null },
+    { name:'Robinhood',           bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true,  due:null },
   ];
   const TCOL = Object.fromEntries(TYPES);
+  let curCheck = null, filter = 'all';
+
+  function dueTag(b) {
+    if (b.paid || b.due === null) return '';
+    if (b.due < 0)  return `<span class="due-tag over">overdue ${-b.due}d</span>`;
+    if (b.due === 0) return `<span class="due-tag soon">due today</span>`;
+    if (b.due <= 3) return `<span class="due-tag soon">due in ${b.due}d</span>`;
+    return '';
+  }
+
+  function renderTiles() {
+    const c = curCheck;
+    const leftToPay = BILLS.filter(b => !b.paid).reduce((s, b) => s + b.amt, 0);
+    const rem = c.income - c.alloc;
+    document.getElementById('d-tiles').innerHTML = `
+      <div class="tile hero-tile"><div class="lbl">Left to pay</div><div class="val" style="color:${leftToPay > 0 ? 'var(--ink)' : 'var(--good)'}">$${leftToPay.toLocaleString()}</div><div class="sub">${BILLS.filter(b => !b.paid).length} unpaid bills</div></div>
+      <div class="tile"><div class="lbl">Unallocated</div><div class="val" style="color:${rem >= 0 ? 'var(--good)' : 'var(--bad)'}">$${Math.abs(rem).toLocaleString()}</div><div class="sub">${rem >= 0 ? 'available' : 'over budget'}</div></div>
+      <div class="tile"><div class="lbl">Take-home</div><div class="val">$${c.income.toLocaleString()}</div><div class="sub">per check · tap to edit</div></div>`;
+  }
+
+  function renderFilters() {
+    document.getElementById('d-filters').innerHTML = ['all','unpaid','paid'].map(f =>
+      `<button class="fchip ${filter === f ? 'on' : ''}" onclick="filter='${f}';renderBills();renderFilters()">${f[0].toUpperCase() + f.slice(1)}</button>`).join('');
+  }
+
+  function renderBills() {
+    const idx = BILLS.map((b, j) => j).filter(j =>
+      filter === 'all' || (filter === 'paid') === BILLS[j].paid);
+    // unpaid first (most urgent due date on top), paid sink to the bottom
+    idx.sort((a, b) => (BILLS[a].paid - BILLS[b].paid) ||
+      ((BILLS[a].due ?? 99) - (BILLS[b].due ?? 99)));
+    document.getElementById('d-bills').innerHTML = idx.map(j => { const b = BILLS[j]; return `
+      <div class="bill ${b.paid ? 'done' : ''}">
+        <div class="bar-ind" style="background:${TCOL[b.type]}"></div>
+        <div class="info">
+          <div class="name">${b.name} ${dueTag(b)}</div>
+          <div class="meta">${b.bank}${b.auto ? ' · <span class="auto">AUTO</span>' : ''}</div>
+        </div>
+        <div class="amt">$${b.amt.toLocaleString()}</div>
+        <div class="tick" onclick="togglePaid(${j})">✓</div>
+      </div>`; }).join('');
+    document.getElementById('d-count').textContent = idx.length + ' of ' + curCheck.bills;
+  }
+
+  let toastTimer = null;
+  function togglePaid(j) {
+    const b = BILLS[j];
+    b.paid = !b.paid;
+    renderBills(); renderTiles();
+    const t = document.getElementById('toast');
+    t.innerHTML = `${b.name} marked ${b.paid ? 'paid' : 'unpaid'} <button onclick="undoToggle(${j})">UNDO</button>`;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+  }
+
+  function undoToggle(j) {
+    BILLS[j].paid = !BILLS[j].paid;
+    renderBills(); renderTiles();
+    clearTimeout(toastTimer);
+    document.getElementById('toast').classList.remove('show');
+  }
 
   function openCheck(i) {
-    const c = CHECKS[i];
-    const rem = c.income - c.alloc;
+    const c = curCheck = CHECKS[i];
+    filter = 'all';
     document.getElementById('d-title').textContent = 'Check #' + c.n;
     document.getElementById('d-dates').textContent = c.sd + ' → ' + c.ed;
-    document.getElementById('d-tiles').innerHTML = `
-      <div class="tile hero-tile"><div class="lbl">Remaining</div><div class="val" style="color:${rem >= 0 ? 'var(--good)' : 'var(--bad)'}">$${Math.abs(rem).toLocaleString()}</div><div class="sub">available</div></div>
-      <div class="tile"><div class="lbl">Allocated</div><div class="val">$${c.alloc.toLocaleString()}</div><div class="sub">active bills</div></div>
-      <div class="tile"><div class="lbl">Take-home</div><div class="val">$${c.income.toLocaleString()}</div><div class="sub">per check · tap to edit</div></div>`;
+    renderTiles(); renderFilters(); renderBills();
     document.getElementById('d-bar').innerHTML = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
       `<span style="width:${(c.by[t]/c.income*100).toFixed(1)}%;background:${col}" title="${t} $${c.by[t]}"></span>`).join('');
     document.getElementById('d-legend').innerHTML = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
       `<span class="it"><span class="sw" style="background:${col}"></span>${t} $${c.by[t].toLocaleString()}</span>`).join('');
-    document.getElementById('d-count').textContent = BILLS.length + ' of ' + c.bills;
-    document.getElementById('d-bills').innerHTML = BILLS.map((b, j) => `
-      <div class="bill ${b.paid ? 'done' : ''}" id="bill-${j}">
-        <div class="bar-ind" style="background:${TCOL[b.type]}"></div>
-        <div class="info">
-          <div class="name">${b.name}</div>
-          <div class="meta">${b.bank}${b.auto ? ' · <span class="auto">AUTO</span>' : ''}</div>
-        </div>
-        <div class="amt">$${b.amt.toLocaleString()}</div>
-        <div class="tick" onclick="document.getElementById('bill-${j}').classList.toggle('done')">✓</div>
-      </div>`).join('');
     document.getElementById('screen-home').style.display = 'none';
     document.getElementById('screen-detail').style.display = 'block';
     window.scrollTo(0, 0);
