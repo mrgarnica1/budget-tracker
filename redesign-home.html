@@ -124,12 +124,11 @@
 
   /* stat tiles: 3-up on phone, part of a wider grid on desktop */
   .d-layout { display: grid; gap: 10px; }
-  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px 14px; }
   .tile { background: var(--card); border: 1px solid var(--card-border); border-radius: 8px; padding: 10px 12px; }
   .tile .lbl { font-size: 9.5px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tile .val { font-size: 19px; font-weight: 800; margin-top: 4px; letter-spacing: -.02em; }
   .tile .sub { font-size: 10px; color: var(--ink-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tile.hero-tile { border-color: rgba(52,211,153,.3); }
 
   .panel { background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; }
   .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
@@ -276,7 +275,7 @@
     const leftToPay = BILLS.filter(b => !b.paid).reduce((s, b) => s + b.amt, 0);
     const rem = c.income - c.alloc;
     document.getElementById('d-tiles').innerHTML = `
-      <div class="tile hero-tile"><div class="lbl">Left to pay</div><div class="val" style="color:${leftToPay > 0 ? 'var(--ink)' : 'var(--good)'}">$${leftToPay.toLocaleString()}</div><div class="sub">${BILLS.filter(b => !b.paid).length} unpaid bills</div></div>
+      <div class="tile"><div class="lbl">Left to pay</div><div class="val" style="color:${leftToPay > 0 ? 'var(--ink)' : 'var(--good)'}">$${leftToPay.toLocaleString()}</div><div class="sub">${BILLS.filter(b => !b.paid).length} unpaid bills</div></div>
       <div class="tile"><div class="lbl">Unallocated</div><div class="val" style="color:${rem >= 0 ? 'var(--good)' : 'var(--bad)'}">$${Math.abs(rem).toLocaleString()}</div><div class="sub">${rem >= 0 ? 'available' : 'over budget'}</div></div>
       <div class="tile"><div class="lbl">Take-home</div><div class="val">$${c.income.toLocaleString()}</div><div class="sub">per check · tap to edit</div></div>`;
   }
