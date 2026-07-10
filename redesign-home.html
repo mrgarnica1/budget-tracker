@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Budget Tracker — UI Redesign Draft</title>
+<style>
+  :root {
+    --bg: #070b14;
+    --card: linear-gradient(180deg, #111a2c 0%, #0b1120 100%);
+    --card-border: rgba(148,163,184,.14);
+    --ink: #eef2f8;
+    --ink-2: #8b96a8;
+    --ink-3: #5b6577;
+    --accent-a: #3987e5;
+    --accent-b: #22d3ee;
+    --good: #34d399;
+    --bad: #f87171;
+    --chip-bg: rgba(148,163,184,.08);
+    /* bill-type colors (CVD-validated set) */
+    --t-loan: #d95926;
+    --t-cc: #3987e5;
+    --t-sub: #d55181;
+    --t-bills: #9085e9;
+    --t-inv: #199e70;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    font-variant-numeric: tabular-nums;
+  }
+  .glow {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background:
+      radial-gradient(600px 300px at 80% -5%, rgba(57,135,229,.18), transparent 70%),
+      radial-gradient(500px 260px at 10% 0%, rgba(34,211,238,.10), transparent 70%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1160px; margin: 0 auto; padding: 20px 18px 40px; }
+
+  /* ── Header ── */
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+  .brand h1 { font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+  .brand h1 em { font-style: normal; background: linear-gradient(90deg, var(--accent-a), var(--accent-b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .brand .sub { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+  .btn-new {
+    border: 0; cursor: pointer; color: #04121f; font-weight: 700; font-size: 13px;
+    padding: 11px 18px; border-radius: 999px; white-space: nowrap;
+    background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+    box-shadow: 0 4px 24px rgba(34,211,238,.25);
+  }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 22px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--ink-2); background: var(--chip-bg);
+    border: 1px solid var(--card-border); padding: 6px 12px; border-radius: 999px;
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 99px; background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .icons { display: flex; gap: 8px; }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
+    background: var(--chip-bg); border: 1px solid var(--card-border); color: var(--ink-2);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── Card grid: 1-col phone → auto multi-col desktop ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 20px; padding: 18px;
+    position: relative; overflow: hidden;
+  }
+  .card.paid { border-color: rgba(52,211,153,.35); }
+  .card.paid::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(400px 120px at 50% -20%, rgba(52,211,153,.12), transparent 70%);
+  }
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-title { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .card-dates { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; }
+  .chip {
+    font-size: 10.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+    background: var(--chip-bg); border: 1px solid var(--card-border); color: var(--ink-2);
+  }
+  .chip.ok { color: #072a1c; background: linear-gradient(135deg, #34d399, #6ee7b7); border: 0; box-shadow: 0 2px 14px rgba(52,211,153,.3); }
+
+  .hero { margin: 16px 0 4px; }
+  .hero .lbl { font-size: 10.5px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; }
+  .hero .val { font-size: 32px; font-weight: 800; letter-spacing: -.02em; margin-top: 2px; }
+  .hero .val.pos { color: var(--good); }
+  .hero .val.neg { color: var(--bad); }
+  .hero .of { font-size: 12px; color: var(--ink-2); font-weight: 400; margin-left: 6px; }
+
+  .stats { display: flex; gap: 18px; margin: 12px 0 14px; }
+  .stat .lbl { font-size: 10px; letter-spacing: .1em; color: var(--ink-3); text-transform: uppercase; }
+  .stat .val { font-size: 14.5px; font-weight: 600; margin-top: 2px; }
+
+  /* segmented allocation bar — 2px gaps, rounded ends */
+  .bar { display: flex; gap: 2px; height: 6px; border-radius: 99px; overflow: hidden; background: rgba(148,163,184,.10); }
+  .bar span { height: 100%; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; }
+  .legend .it { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ink-2); }
+  .legend .sw { width: 7px; height: 7px; border-radius: 2px; }
+
+  .card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(148,163,184,.10); font-size: 11.5px; color: var(--ink-3); }
+  .card-foot .view { color: var(--accent-b); font-weight: 600; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <h1>PAY<em>CHECKS</em></h1>
+      <div class="sub">Fri, Jul 10 · 6 checks</div>
+    </div>
+    <button class="btn-new">+ New Check</button>
+  </header>
+  <div class="toolbar">
+    <span class="pill"><span class="dot"></span> synced · mr.garnica1</span>
+    <div class="icons">
+      <button class="icon-btn" title="Import">↓</button>
+      <button class="icon-btn" title="Export">↑</button>
+      <button class="icon-btn" title="Sign out">⎋</button>
+    </div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+  const TYPES = [
+    ['Loan','var(--t-loan)'], ['CC','var(--t-cc)'], ['Subscription','var(--t-sub)'],
+    ['Bills','var(--t-bills)'], ['Investment','var(--t-inv)'],
+  ];
+  const CHECKS = [
+    { n:6, sd:'Jul 4',  ed:'Jul 17', income:5445, alloc:5376, paid:6,  bills:27, all:false, by:{Loan:2650, CC:1730, Subscription:213, Bills:683, Investment:100} },
+    { n:5, sd:'Jun 20', ed:'Jul 3',  income:5445, alloc:5082, paid:19, bills:19, all:true,  by:{Loan:2600, CC:1610, Subscription:132, Bills:640, Investment:100} },
+    { n:4, sd:'Jun 6',  ed:'Jun 19', income:5445, alloc:5096, paid:26, bills:26, all:true,  by:{Loan:2506, CC:1613, Subscription:236, Bills:641, Investment:100} },
+    { n:3, sd:'May 22', ed:'Jun 5',  income:5445, alloc:5153, paid:17, bills:17, all:true,  by:{Loan:2739, CC:1315, Subscription:105, Bills:894, Investment:100} },
+    { n:2, sd:'May 9',  ed:'May 22', income:5445, alloc:5405, paid:23, bills:23, all:true,  by:{Loan:3739, CC:915,  Subscription:66,  Bills:585, Investment:100} },
+    { n:1, sd:'Apr 24', ed:'May 8',  income:5435, alloc:5391, paid:24, bills:24, all:true,  by:{Loan:3516, CC:1250, Subscription:53,  Bills:472, Investment:100} },
+  ];
+  document.getElementById('grid').innerHTML = CHECKS.map(c => {
+    const rem = c.income - c.alloc;
+    const segs = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
+      `<span style="width:${(c.by[t]/c.income*100).toFixed(1)}%;background:${col}" title="${t} $${c.by[t]}"></span>`).join('');
+    const legend = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
+      `<span class="it"><span class="sw" style="background:${col}"></span>${t} $${c.by[t].toLocaleString()}</span>`).join('');
+    return `
+    <div class="card ${c.all ? 'paid' : ''}">
+      <div class="card-top">
+        <div>
+          <div class="card-title">Check #${c.n}</div>
+          <div class="card-dates">${c.sd} → ${c.ed}</div>
+        </div>
+        <span class="chip ${c.all ? 'ok' : ''}">${c.all ? '✓ All paid' : c.paid + ' / ' + c.bills + ' paid'}</span>
+      </div>
+      <div class="hero">
+        <div class="lbl">Remaining</div>
+        <div class="val ${rem >= 0 ? 'pos' : 'neg'}">$${Math.abs(rem).toLocaleString()}<span class="of">of $${c.income.toLocaleString()}</span></div>
+      </div>
+      <div class="bar">${segs}</div>
+      <div class="legend">${legend}</div>
+      <div class="stats">
+        <div class="stat"><div class="lbl">Income</div><div class="val">$${c.income.toLocaleString()}</div></div>
+        <div class="stat"><div class="lbl">Allocated</div><div class="val">$${c.alloc.toLocaleString()}</div></div>
+      </div>
+      <div class="card-foot"><span>${c.bills} active bills</span><span class="view">View →</span></div>
+    </div>`;
+  }).join('');
+</script>
+</body>
+</html>
