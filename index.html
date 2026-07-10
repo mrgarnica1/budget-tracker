@@ -786,25 +786,30 @@ button { font-family: inherit; }
 
     root.innerHTML = `
       <div style="font-family:'DM Mono','Courier New',monospace;background:#0d0d0d;min-height:100vh;color:#e8e0d5;">
-        <div style="border-bottom:1px solid #1a1a1a;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#0d0d0d;z-index:10;">
-          <div>
-            <div class="syne" style="font-size:19px;color:#fff;">PAYCHECKS</div>
-            <div style="font-size:10px;color:#7b7b7b;letter-spacing:.1em;">${app.checks.length} CHECK${app.checks.length!==1?'S':''} · BIWEEKLY PLANNER <span data-cloud-indicator style="color:${cloudUser?'#10b981':'#555'};margin-left:4px;">${cloudUser?'● synced · '+escHtml((cloudUser.email||'').split('@')[0]):'○ local only'}</span></div>
+        <div style="border-bottom:1px solid #1a1a1a;padding:12px 16px 10px;position:sticky;top:0;background:#0d0d0d;z-index:10;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div>
+              <div class="syne" style="font-size:19px;color:#fff;">PAYCHECKS</div>
+              <div style="font-size:10px;color:#7b7b7b;letter-spacing:.08em;">${new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})} · ${app.checks.length} CHECK${app.checks.length!==1?'S':''}</div>
+            </div>
+            <button data-act="add-check" style="background:#10b98114;border:1px solid #10b98155;color:#10b981;padding:8px 14px;border-radius:4px;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;letter-spacing:.05em;font-weight:500;flex-shrink:0;">+ NEW CHECK</button>
           </div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            ${cloudReady ? (cloudUser
-              ? `<button data-act="cloud-signout" title="Sign out of sync" style="background:transparent;border:1px solid #2a2a2a;color:#7b7b7b;width:30px;height:30px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M5 2H2v10h3M9 4l3 3-3 3M12 7H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </button>`
-              : `<button data-act="cloud-signin" style="background:#4285f414;border:1px solid #4285f455;color:#8ab4f8;padding:8px 12px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;cursor:pointer;letter-spacing:.05em;font-weight:500;white-space:nowrap;">G · SIGN IN TO SYNC</button>`)
-            : ''}
-            <button data-act="import-data" title="Import data" style="background:transparent;border:1px solid #2a2a2a;color:#7b7b7b;width:30px;height:30px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <button data-act="export-data" title="Export data" style="background:transparent;border:1px solid #2a2a2a;color:#7b7b7b;width:30px;height:30px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 9V1M4 4l3-3 3 3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <button data-act="add-check" style="background:#10b98114;border:1px solid #10b98155;color:#10b981;padding:8px 14px;border-radius:4px;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;letter-spacing:.05em;font-weight:500;">+ NEW CHECK</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;">
+            <div style="flex:1;min-width:0;font-size:10px;color:#7b7b7b;letter-spacing:.08em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span data-cloud-indicator style="color:${cloudUser?'#10b981':'#555'};">${cloudUser?'● synced · '+escHtml((cloudUser.email||'').split('@')[0]):'○ local only'}</span></div>
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+              ${cloudReady ? (cloudUser
+                ? `<button data-act="cloud-signout" title="Sign out of sync" style="background:transparent;border:1px solid #2a2a2a;color:#7b7b7b;width:28px;height:28px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                    <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M5 2H2v10h3M9 4l3 3-3 3M12 7H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>`
+                : `<button data-act="cloud-signin" style="background:#4285f414;border:1px solid #4285f455;color:#8ab4f8;padding:7px 12px;border-radius:4px;font-size:10px;font-family:'DM Mono',monospace;cursor:pointer;letter-spacing:.05em;font-weight:500;white-space:nowrap;">G · SIGN IN TO SYNC</button>`)
+              : ''}
+              <button data-act="import-data" title="Import data" style="background:transparent;border:1px solid #2a2a2a;color:#7b7b7b;width:28px;height:28px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button data-act="export-data" title="Export data" style="background:transparent;border:1px solid #2a2a2a;color:#7b7b7b;width:28px;height:28px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 9V1M4 4l3-3 3 3M2 11h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
           </div>
         </div>
         <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
