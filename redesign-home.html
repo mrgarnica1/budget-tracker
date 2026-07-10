@@ -108,11 +108,61 @@
 
   .card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(148,163,184,.10); font-size: 11.5px; color: var(--ink-3); }
   .card-foot .view { color: var(--accent-b); font-weight: 600; cursor: pointer; }
+  .card { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
+  .card:hover { transform: translateY(-2px); border-color: rgba(34,211,238,.35); }
+
+  /* ── Detail screen ── */
+  #screen-detail { display: none; }
+  .d-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+  .d-header .left { display: flex; align-items: center; gap: 12px; }
+  .btn-back { width: 38px; height: 38px; border-radius: 12px; cursor: pointer; background: var(--chip-bg); border: 1px solid var(--card-border); color: var(--ink-2); font-size: 16px; }
+  .d-title { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+  .d-dates { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .today { text-align: right; }
+  .today .lbl { font-size: 9.5px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; }
+  .today .val { font-size: 13px; font-weight: 700; background: linear-gradient(90deg, var(--accent-a), var(--accent-b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* stat tiles: 3-up on phone, part of a wider grid on desktop */
+  .d-layout { display: grid; gap: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+  .tile { background: var(--card); border: 1px solid var(--card-border); border-radius: 16px; padding: 13px 14px; }
+  .tile .lbl { font-size: 9.5px; letter-spacing: .12em; color: var(--ink-3); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .val { font-size: 20px; font-weight: 800; margin-top: 4px; letter-spacing: -.02em; }
+  .tile .sub { font-size: 10px; color: var(--ink-3); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile.hero-tile { border-color: rgba(52,211,153,.3); }
+
+  .panel { background: var(--card); border: 1px solid var(--card-border); border-radius: 20px; padding: 16px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+  .panel-head .t { font-size: 13px; font-weight: 700; }
+  .panel-head .t small { color: var(--ink-3); font-weight: 400; margin-left: 6px; }
+  .btn-add { border: 0; cursor: pointer; color: #04121f; font-weight: 700; font-size: 11.5px; padding: 8px 14px; border-radius: 999px; background: linear-gradient(135deg, #34d399, #6ee7b7); }
+
+  .bill { display: flex; align-items: center; gap: 12px; padding: 12px 10px; border-radius: 14px; }
+  .bill + .bill { border-top: 1px solid rgba(148,163,184,.08); }
+  .bill:hover { background: rgba(148,163,184,.05); }
+  .bill .bar-ind { width: 4px; height: 34px; border-radius: 99px; flex-shrink: 0; }
+  .bill .info { flex: 1; min-width: 0; }
+  .bill .name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bill .meta { font-size: 10.5px; color: var(--ink-3); margin-top: 2px; }
+  .bill .meta .auto { color: var(--accent-b); }
+  .bill .amt { font-size: 15px; font-weight: 700; }
+  .bill .tick { width: 26px; height: 26px; border-radius: 99px; border: 1.5px solid var(--card-border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: transparent; cursor: pointer; }
+  .bill.done .tick { background: linear-gradient(135deg, #34d399, #6ee7b7); border: 0; color: #04121f; }
+  .bill.done .name { color: var(--ink-3); text-decoration: line-through; }
+  .bill.done .amt { color: var(--ink-3); }
+
+  /* desktop: tiles + allocation panel side by side, bills full width */
+  @media (min-width: 900px) {
+    .d-layout { grid-template-columns: 340px 1fr; align-items: start; }
+    .d-side { position: sticky; top: 20px; display: grid; gap: 14px; }
+    .tiles { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 <div class="glow"></div>
 <div class="wrap">
+  <div id="screen-home">
   <header>
     <div class="brand">
       <h1>PAY<em>CHECKS</em></h1>
@@ -129,7 +179,38 @@
     </div>
   </div>
 
-  <div class="grid" id="grid"></div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div id="screen-detail">
+    <div class="d-header">
+      <div class="left">
+        <button class="btn-back" onclick="goHome()">←</button>
+        <div>
+          <div class="d-title" id="d-title">Check #6</div>
+          <div class="d-dates" id="d-dates">Jul 4 → Jul 17</div>
+        </div>
+      </div>
+      <div class="today"><div class="lbl">Today</div><div class="val">Fri, Jul 10</div></div>
+    </div>
+    <div class="d-layout">
+      <div class="d-side">
+        <div class="tiles" id="d-tiles"></div>
+        <div class="panel">
+          <div class="panel-head"><span class="t">Allocation</span></div>
+          <div class="bar" id="d-bar"></div>
+          <div class="legend" id="d-legend"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="t">Active bills<small id="d-count"></small></span>
+          <button class="btn-add">+ Add Bill</button>
+        </div>
+        <div id="d-bills"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -145,6 +226,55 @@
     { n:2, sd:'May 9',  ed:'May 22', income:5445, alloc:5405, paid:23, bills:23, all:true,  by:{Loan:3739, CC:915,  Subscription:66,  Bills:585, Investment:100} },
     { n:1, sd:'Apr 24', ed:'May 8',  income:5435, alloc:5391, paid:24, bills:24, all:true,  by:{Loan:3516, CC:1250, Subscription:53,  Bills:472, Investment:100} },
   ];
+  const BILLS = [
+    { name:'Mortgage',            bank:'Chase',          type:'Loan',         amt:1600, auto:false, paid:false },
+    { name:'Baby Sitting',        bank:'Schools First',  type:'Bills',        amt:600,  auto:false, paid:false },
+    { name:'Apple Wallet',        bank:'Apple',          type:'CC',           amt:400,  auto:false, paid:true  },
+    { name:'Capital One X (9806)',bank:'Capital One X',  type:'CC',           amt:400,  auto:true,  paid:false },
+    { name:'MY Car Payment',      bank:'Schools First',  type:'Loan',         amt:500,  auto:true,  paid:true  },
+    { name:'Vanguard',            bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true  },
+    { name:'SoFi Loan 21k',       bank:'Schools First',  type:'Loan',         amt:250,  auto:true,  paid:false },
+    { name:'Sam’s Club',     bank:'Schools First',  type:'CC',           amt:300,  auto:true,  paid:false },
+    { name:'Tesla Insurance MY',  bank:'Apple',          type:'Bills',        amt:295,  auto:true,  paid:false },
+    { name:'UFC Monthly Fee',     bank:'Amex',           type:'Subscription', amt:19,   auto:true,  paid:false },
+    { name:'Netflix',             bank:'Capital One',    type:'Subscription', amt:5,    auto:true,  paid:false },
+    { name:'Robinhood',           bank:'Schools First',  type:'Investment',   amt:50,   auto:true,  paid:true  },
+  ];
+  const TCOL = Object.fromEntries(TYPES);
+
+  function openCheck(i) {
+    const c = CHECKS[i];
+    const rem = c.income - c.alloc;
+    document.getElementById('d-title').textContent = 'Check #' + c.n;
+    document.getElementById('d-dates').textContent = c.sd + ' → ' + c.ed;
+    document.getElementById('d-tiles').innerHTML = `
+      <div class="tile hero-tile"><div class="lbl">Remaining</div><div class="val" style="color:${rem >= 0 ? 'var(--good)' : 'var(--bad)'}">$${Math.abs(rem).toLocaleString()}</div><div class="sub">available</div></div>
+      <div class="tile"><div class="lbl">Allocated</div><div class="val">$${c.alloc.toLocaleString()}</div><div class="sub">active bills</div></div>
+      <div class="tile"><div class="lbl">Take-home</div><div class="val">$${c.income.toLocaleString()}</div><div class="sub">per check · tap to edit</div></div>`;
+    document.getElementById('d-bar').innerHTML = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
+      `<span style="width:${(c.by[t]/c.income*100).toFixed(1)}%;background:${col}" title="${t} $${c.by[t]}"></span>`).join('');
+    document.getElementById('d-legend').innerHTML = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
+      `<span class="it"><span class="sw" style="background:${col}"></span>${t} $${c.by[t].toLocaleString()}</span>`).join('');
+    document.getElementById('d-count').textContent = BILLS.length + ' of ' + c.bills;
+    document.getElementById('d-bills').innerHTML = BILLS.map((b, j) => `
+      <div class="bill ${b.paid ? 'done' : ''}" id="bill-${j}">
+        <div class="bar-ind" style="background:${TCOL[b.type]}"></div>
+        <div class="info">
+          <div class="name">${b.name}</div>
+          <div class="meta">${b.bank}${b.auto ? ' · <span class="auto">AUTO</span>' : ''}</div>
+        </div>
+        <div class="amt">$${b.amt.toLocaleString()}</div>
+        <div class="tick" onclick="document.getElementById('bill-${j}').classList.toggle('done')">✓</div>
+      </div>`).join('');
+    document.getElementById('screen-home').style.display = 'none';
+    document.getElementById('screen-detail').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+  function goHome() {
+    document.getElementById('screen-detail').style.display = 'none';
+    document.getElementById('screen-home').style.display = 'block';
+  }
+
   document.getElementById('grid').innerHTML = CHECKS.map(c => {
     const rem = c.income - c.alloc;
     const segs = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
@@ -152,7 +282,7 @@
     const legend = TYPES.filter(([t]) => c.by[t]).map(([t,col]) =>
       `<span class="it"><span class="sw" style="background:${col}"></span>${t} $${c.by[t].toLocaleString()}</span>`).join('');
     return `
-    <div class="card ${c.all ? 'paid' : ''}">
+    <div class="card ${c.all ? 'paid' : ''}" onclick="openCheck(${CHECKS.indexOf(c)})">
       <div class="card-top">
         <div>
           <div class="card-title">Check #${c.n}</div>
