@@ -337,6 +337,7 @@ button { font-family: inherit; }
   let cloudPushTimer = null;
   let lastCloudStamp = 0;       // updatedAt of the newest state we've seen/written
   let applyingRemote = false;
+  let seededDefaults = false;   // true when app.checks is an unsynced default seed, never confirmed against cloud
 
   function initCloud() {
     try {
@@ -356,7 +357,7 @@ button { font-family: inherit; }
           // with default data must pull from the cloud, not clobber it.
           cloudDoc.get().then(snap => {
             cloudLoaded = true;
-            if (!snap.exists) pushCloud();
+            if (!snap.exists) { seededDefaults = false; saveApp(); }
           }).catch(e => console.warn('Cloud seed check failed', e));
         }
         if (sessionStorage.getItem(PIN_SESSION_KEY) === '1') renderApp();
@@ -390,11 +391,12 @@ button { font-family: inherit; }
         if (!snap.metadata.fromCache) cloudLoaded = true;
         if (!snap.exists || snap.metadata.hasPendingWrites) return;
         const d = snap.data();
-        if (!d.json || !(d.updatedAt > lastCloudStamp)) return;
+        if (!d.json || (!seededDefaults && !(d.updatedAt > lastCloudStamp))) return;
         try {
           const parsed = JSON.parse(d.json);
           if (!parsed.checks || !parsed.checks.length) return;
           lastCloudStamp = d.updatedAt;
+          seededDefaults = false;
           applyingRemote = true;
           app.checks = parsed.checks;
           // Current check may have been deleted remotely
@@ -413,6 +415,7 @@ button { font-family: inherit; }
     clearTimeout(cloudPushTimer);
     cloudPushTimer = setTimeout(() => {
       if (!cloudDoc || !cloudLoaded) return; // don't write before we've read the cloud state
+      if (seededDefaults) return;            // never overwrite an existing cloud doc with unsynced default data
       const updatedAt = Date.now();
       lastCloudStamp = updatedAt;
       cloudDoc.set({ json: JSON.stringify({ checks: app.checks }), updatedAt })
@@ -431,7 +434,7 @@ button { font-family: inherit; }
 
   /* ── Persistence ───────────────────────────────────────────── */
   function saveApp() {
-    try { localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, updatedAt: Date.now() })); }
+    try { localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, updatedAt: Date.now(), seeded: seededDefaults })); }
     catch(e) { console.warn('Save failed', e); }
     pushCloud();
   }
@@ -441,7 +444,16 @@ button { font-family: inherit; }
       const raw = localStorage.getItem(APP_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        if (data.checks && data.checks.length) { app.checks = data.checks; lastCloudStamp = data.updatedAt || 0; return; }
+        if (data.checks && data.checks.length) {
+          app.checks = data.checks; lastCloudStamp = data.updatedAt || 0; seededDefaults = !!data.seeded;
+          // Recovery for data written by older code without the seeded flag: a single
+          // template-shaped check with nothing paid is an unsynced seed, not user data —
+          // existing cloud data must win over it.
+          if (data.seeded === undefined && data.checks.length === 1 &&
+              Array.isArray(data.checks[0].bills) && data.checks[0].bills.length === INITIAL_BILLS.length &&
+              data.checks[0].bills.every(b => !b.paid)) seededDefaults = true;
+          return;
+        }
       }
       // Migrate old single-check format
       const oldRaw = localStorage.getItem(OLD_KEY);
@@ -462,8 +474,8 @@ button { font-family: inherit; }
         }
       }
     } catch(e) { console.warn('Load failed', e); }
-    // First run — create a default check
-    if (app.checks.length === 0) app.checks = [makeCheck()];
+    // First run — create a default check (unsynced seed: existing cloud data must win over it)
+    if (app.checks.length === 0) { app.checks = [makeCheck()]; seededDefaults = true; }
     // Migration: archive yearly bills that haven't been migrated
     const archivedIds = new Set(INITIAL_BILLS.filter(b=>b.archived).map(b=>b.id));
     app.checks.forEach(chk=>{ chk.bills.forEach(b=>{ if(b.archived===undefined && archivedIds.has(b.id)) b.archived=true; }); });
