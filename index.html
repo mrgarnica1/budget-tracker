@@ -338,6 +338,11 @@ button { font-family: inherit; }
   let lastCloudStamp = 0;       // updatedAt of the newest state we've seen/written
   let applyingRemote = false;
   let seededDefaults = false;   // true when app.checks is an unsynced default seed, never confirmed against cloud
+  function looksLikeSeed(checks){
+    return Array.isArray(checks) && checks.length === 1
+      && Array.isArray(checks[0].bills) && checks[0].bills.length === INITIAL_BILLS.length
+      && checks[0].bills.every(x => !x.paid);
+  }
 
   function initCloud() {
     try {
@@ -391,10 +396,18 @@ button { font-family: inherit; }
         if (!snap.metadata.fromCache) cloudLoaded = true;
         if (!snap.exists || snap.metadata.hasPendingWrites) return;
         const d = snap.data();
-        if (!d.json || (!seededDefaults && !(d.updatedAt > lastCloudStamp))) return;
+        if (!d.json) return;
+        let parsed;
+        try { parsed = JSON.parse(d.json); } catch(e){ return; }
+        if (!parsed.checks || !parsed.checks.length) return;
+        // Self-heal: the cloud doc holds template/seed data but this device has real
+        // data — re-push ours instead of adopting the seed, repairing the cloud copy.
+        if (looksLikeSeed(parsed.checks) && !seededDefaults && app.checks && app.checks.length && !looksLikeSeed(app.checks)) {
+          pushCloud();
+          return;
+        }
+        if (!seededDefaults && !(d.updatedAt > lastCloudStamp)) return;
         try {
-          const parsed = JSON.parse(d.json);
-          if (!parsed.checks || !parsed.checks.length) return;
           lastCloudStamp = d.updatedAt;
           seededDefaults = false;
           applyingRemote = true;
