@@ -1612,7 +1612,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   /* ── Credit Cards — data model + CRUD. Balance history is captured (one snapshot per
      day) so a later payoff-planner/net-worth phase has real data to chart from day one. ── */
   function makeCard(){
-    return { id:'card-'+Date.now()+'-'+Math.random().toString(36).slice(2,6), name:'', bank:'', balance:0, limit:0, apr:0, minPayment:0, dueDay:null, createdAt:toDS(new Date()), history:[], transactions:[] };
+    return { id:'card-'+Date.now()+'-'+Math.random().toString(36).slice(2,6), name:'', bank:'', balance:0, limit:0, apr:0, minPayment:0, dueDay:null, createdAt:toDS(new Date()), history:[], transactions:[], rewards:[], perks:[], annualFee:0, highlight:'', warning:'' };
   }
   function pushCardHistory(card){
     const today=toDS(new Date());
@@ -1810,9 +1810,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     </div>`;
   }
 
-  let cardUi = { editingCard:null, confirmingDeleteCard:false };
+  let cardUi = { editingCard:null, confirmingDeleteCard:false, viewingCardId:null };
   function startNewCard(){ cardUi.editingCard=makeCard(); cardUi.confirmingDeleteCard=false; renderCardsTab(); }
   function startEditCard(id){ const c=app.cards.find(c=>c.id===id); if(!c) return; cardUi.editingCard=Object.assign({},c); cardUi.confirmingDeleteCard=false; renderCardsTab(); }
+  function startViewCard(id){ const c=app.cards.find(c=>c.id===id); if(!c) return; cardUi.viewingCardId=id; renderCardsTab(); }
+  function closeCardDetail(){ cardUi.viewingCardId=null; renderCardsTab(); }
   function cancelCardModal(){ cardUi.editingCard=null; cardUi.confirmingDeleteCard=false; renderCardsTab(); }
   function updCardField(field,value){ if(!cardUi.editingCard) return; cardUi.editingCard[field]=value; }
   function saveCard(){
@@ -1825,6 +1827,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       apr:Math.max(0,Number(ec.apr)||0), minPayment:Math.max(0,Number(ec.minPayment)||0),
       dueDay:(ec.dueDay===''||ec.dueDay==null)?null:Math.max(1,Math.min(31,Number(ec.dueDay)||0)),
       createdAt:ec.createdAt||toDS(new Date()), history:ec.history||[], transactions:ec.transactions||[],
+      rewards:Array.isArray(ec.rewards)?ec.rewards.map(s=>(s||'').trim()).filter(Boolean):[],
+      perks:Array.isArray(ec.perks)?ec.perks.map(s=>(s||'').trim()).filter(Boolean):[],
+      annualFee:Math.max(0,Number(ec.annualFee)||0), highlight:(ec.highlight||'').trim(), warning:(ec.warning||'').trim(),
     };
     pushCardHistory(cleaned);
     if(isNew) app.cards.unshift(cleaned);
@@ -1838,17 +1843,19 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(!cardUi.confirmingDeleteCard){ cardUi.confirmingDeleteCard=true; renderCardsTab(); return; }
     app.cards=app.cards.filter(c=>c.id!==ec.id);
     cardUi.editingCard=null; cardUi.confirmingDeleteCard=false;
+    if(cardUi.viewingCardId===ec.id) cardUi.viewingCardId=null;
     saveApp(); renderCardsTab();
   }
 
-  function cardTransactionsHtml(ec){
+  function cardTransactionsHtml(ec, limit){
     if(!ec.transactions||!ec.transactions.length) return '';
+    limit=limit||8;
     const byCat={};
     ec.transactions.forEach(t=>{ byCat[t.category]=(byCat[t.category]||0)+t.amount; });
     const catChips=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,tot])=>
       `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;margin:2px 10px 2px 0;"><span style="width:6px;height:6px;border-radius:2px;background:${SPEND_CAT_COLOR[cat]||'#8b96a8'};"></span>${escHtml(cat)} $${tot.toFixed(0)}</span>`
     ).join('');
-    const rows=ec.transactions.slice(0,8).map(t=>`
+    const rows=ec.transactions.slice(0,limit).map(t=>`
       <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:11px;">
         <div style="flex:1;min-width:0;">
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
@@ -1857,11 +1864,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${SPEND_CAT_COLOR[t.category]||'#8b96a8'}18;color:${SPEND_CAT_COLOR[t.category]||'#8b96a8'};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
         <span style="color:#eef2f8;flex-shrink:0;">$${t.amount.toFixed(2)}</span>
       </div>`).join('');
+    const label=limit>=ec.transactions.length?`TRANSACTIONS (${ec.transactions.length})`:`RECENT TRANSACTIONS (showing ${limit} of ${ec.transactions.length})`;
     return `<div style="margin-top:12px;border-top:1px solid rgba(148,163,184,.14);padding-top:10px;">
       <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">SPEND BY CATEGORY</div>
       <div style="margin-bottom:10px;">${catChips}</div>
-      <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:4px;">RECENT TRANSACTIONS (${ec.transactions.length})</div>
-      <div style="max-height:200px;overflow-y:auto;">${rows}</div>
+      <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:4px;">${label}</div>
+      <div style="max-height:${limit>8?'400px':'200px'};overflow-y:auto;">${rows}</div>
     </div>`;
   }
 
@@ -1883,7 +1891,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           ${field('CREDIT LIMIT',`<input type="number" min="0" step="0.01" data-act="cf-limit" data-focus-key="cf-limit" value="${ec.limit}" class="ef" />`)}
           ${field('APR %',`<input type="number" min="0" step="0.01" data-act="cf-apr" data-focus-key="cf-apr" value="${ec.apr}" class="ef" />`)}
           ${field('MIN PAYMENT',`<input type="number" min="0" step="0.01" data-act="cf-minpayment" data-focus-key="cf-minpayment" value="${ec.minPayment}" class="ef" />`)}
+          ${field('ANNUAL FEE',`<input type="number" min="0" step="0.01" data-act="cf-annualfee" data-focus-key="cf-annualfee" value="${ec.annualFee||0}" class="ef" />`)}
         </div>
+        ${field('HIGHLIGHT',`<input type="text" data-act="cf-highlight" data-focus-key="cf-highlight" value="${escAttr(ec.highlight||'')}" placeholder="e.g. Best for groceries — 3% back" class="ef" />`)}
+        ${field('WARNING',`<input type="text" data-act="cf-warning" data-focus-key="cf-warning" value="${escAttr(ec.warning||'')}" placeholder="e.g. High APR — pay in full" class="ef" />`)}
+        ${field('REWARDS (one per line)',`<textarea data-act="cf-rewards" data-focus-key="cf-rewards" rows="3" placeholder="e.g. 5% rotating categories&#10;1% everything else" class="ef">${escHtml((ec.rewards||[]).join('\n'))}</textarea>`)}
+        ${field('PERKS (one per line)',`<textarea data-act="cf-perks" data-focus-key="cf-perks" rows="3" placeholder="e.g. No annual fee&#10;Free FICO score" class="ef">${escHtml((ec.perks||[]).join('\n'))}</textarea>`)}
         ${cardTransactionsHtml(ec)}
         ${cardUi.confirmingDeleteCard?`<div style="margin-top:10px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the card. Tap <b>DELETE</b> again to confirm.</div>`:''}
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;align-items:center;">
@@ -1901,6 +1914,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const act=el.dataset.act, id=el.dataset.cardId||null;
       if(act==='new-card') el.onclick=()=>startNewCard();
       else if(act==='edit-card') el.onclick=()=>startEditCard(id);
+      else if(act==='view-card') el.onclick=()=>startViewCard(id);
+      else if(act==='card-detail-back') el.onclick=()=>closeCardDetail();
+      else if(act==='card-detail-edit') el.onclick=()=>startEditCard(id);
       else if(act==='card-modal-bg') el.onclick=e=>{ if(e.target===el) cancelCardModal(); };
       else if(act==='card-modal-cancel') el.onclick=()=>cancelCardModal();
       else if(act==='card-modal-save') el.onclick=()=>saveCard();
@@ -1912,6 +1928,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='cf-limit') el.oninput=e=>updCardField('limit',e.target.value===''?0:Number(e.target.value));
       else if(act==='cf-apr') el.oninput=e=>updCardField('apr',e.target.value===''?0:Number(e.target.value));
       else if(act==='cf-minpayment') el.oninput=e=>updCardField('minPayment',e.target.value===''?0:Number(e.target.value));
+      else if(act==='cf-annualfee') el.oninput=e=>updCardField('annualFee',e.target.value===''?0:Number(e.target.value));
+      else if(act==='cf-highlight') el.oninput=e=>updCardField('highlight',e.target.value);
+      else if(act==='cf-warning') el.oninput=e=>updCardField('warning',e.target.value);
+      else if(act==='cf-rewards') el.oninput=e=>updCardField('rewards',e.target.value.split('\n'));
+      else if(act==='cf-perks') el.oninput=e=>updCardField('perks',e.target.value.split('\n'));
       else if(act==='import-cards-csv') el.onclick=()=>startImportCardsCsv();
       else if(act==='import-map-select') el.onchange=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g){ g.action=e.target.value; recomputeGroupSuggestion(g); renderCardsTab(); } };
       else if(act==='import-balance-override') el.oninput=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g) g.balanceOverride=e.target.value===''?0:Number(e.target.value); };
@@ -1922,8 +1943,68 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
   }
 
+  /* ── Card Detail — a full drill-down screen (back-arrow header, matching the Paychecks
+     check-detail pattern) rather than jumping straight to the edit form. Read-only view of
+     rewards/perks/highlight/warning plus the FULL transaction history; "Edit" opens the
+     existing edit modal on top for changing the raw fields. ── */
+  function cardDetailHtml(c){
+    const util = c.limit > 0 ? Math.min(100,(c.balance/c.limit)*100) : 0;
+    const utilColor = util >= 80 ? '#f87171' : util >= 50 ? '#e8b565' : '#34d399';
+    return `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#070b14;z-index:10;">
+        <button data-act="card-detail-back" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 5.5H1M5.5 1L1 5.5l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div style="flex:1;min-width:0;">
+          <div class="syne" style="font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(c.name)}</div>
+          <div style="font-size:10px;color:#8b96a8;">${escHtml(c.bank)||'—'}</div>
+        </div>
+        <button data-act="card-detail-edit" data-card-id="${c.id}" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#e8b565;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;flex-shrink:0;">Edit</button>
+      </div>
+      <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
+        <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
+          <div class="syne" style="font-size:26px;color:#eef2f8;">$${(c.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}${c.limit>0?`<span style="font-size:12px;color:#8b96a8;font-weight:400;margin-left:6px;">of $${c.limit.toLocaleString()}</span>`:''}</div>
+          ${c.limit>0?`
+            <div style="height:6px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;margin-top:10px;"><div style="height:100%;width:${util.toFixed(0)}%;background:${utilColor};"></div></div>
+            <div style="font-size:10px;color:#5b6577;margin-top:6px;">${util.toFixed(0)}% utilization</div>
+          `:''}
+          <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;">
+            ${c.apr?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">APR</div><div style="font-size:12px;color:#eef2f8;">${c.apr}%</div></div>`:''}
+            ${c.minPayment?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">MIN PAYMENT</div><div style="font-size:12px;color:#eef2f8;">$${c.minPayment.toLocaleString()}</div></div>`:''}
+            ${c.dueDay?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">DUE DAY</div><div style="font-size:12px;color:#eef2f8;">${c.dueDay}</div></div>`:''}
+            ${c.annualFee?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">ANNUAL FEE</div><div style="font-size:12px;color:#eef2f8;">$${c.annualFee.toLocaleString()}</div></div>`:''}
+          </div>
+        </div>
+        ${c.highlight?`<div style="padding:10px 12px;border:1px solid #34d39955;background:#34d3991a;border-radius:8px;font-size:11px;color:#34d399;margin-bottom:10px;line-height:1.5;">✓ ${escHtml(c.highlight)}</div>`:''}
+        ${c.warning?`<div style="padding:10px 12px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:11px;color:#f87171;margin-bottom:14px;line-height:1.5;">⚠ ${escHtml(c.warning)}</div>`:''}
+        ${(c.rewards&&c.rewards.length)?`
+          <div style="margin-bottom:14px;">
+            <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">REWARDS</div>
+            ${c.rewards.map(r=>`<div style="font-size:12px;color:#eef2f8;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);">• ${escHtml(r)}</div>`).join('')}
+          </div>
+        `:''}
+        ${(c.perks&&c.perks.length)?`
+          <div style="margin-bottom:14px;">
+            <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">PERKS</div>
+            ${c.perks.map(p=>`<div style="font-size:12px;color:#eef2f8;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);">• ${escHtml(p)}</div>`).join('')}
+          </div>
+        `:''}
+        ${cardTransactionsHtml(c, 1000)}
+      </div>
+    </div>`;
+  }
+
   function renderCardsTab(){
     const root = document.getElementById('root');
+    if(cardUi.viewingCardId){
+      const c=app.cards.find(c=>c.id===cardUi.viewingCardId);
+      if(c){
+        root.innerHTML = cardDetailHtml(c) + cardModalHtml();
+        attachCardsEvents();
+        return;
+      }
+      cardUi.viewingCardId=null;
+    }
     const cards = app.cards;
     const totalBalance = cards.reduce((s,c)=>s+(Number(c.balance)||0),0);
     const totalLimit = cards.reduce((s,c)=>s+(Number(c.limit)||0),0);
@@ -1939,7 +2020,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         const util = c.limit > 0 ? Math.min(100,(c.balance/c.limit)*100) : 0;
         const utilColor = util >= 80 ? '#f87171' : util >= 50 ? '#e8b565' : '#34d399';
         return `
-        <div data-act="edit-card" data-card-id="${c.id}" style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;">
+        <div data-act="view-card" data-card-id="${c.id}" style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;">
           <div style="display:flex;align-items:baseline;justify-content:space-between;">
             <div style="font-size:13px;color:#fff;font-weight:500;">${escHtml(c.name)}</div>
             <div class="syne" style="font-size:15px;color:#eef2f8;">$${(c.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
