@@ -1675,6 +1675,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       name: get(['name','description','merchant','payee','transaction description']),
       amount: Math.abs(amt),
       category: get(['category','merchant category','type']),
+      account: get(['account name','account','account nickname','institution name','institution','card name','card']),
     };
   }
   function txId(t){ return `${t.date}|${t.name}|${t.amount}`; }
@@ -1685,32 +1686,128 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     input.onchange=()=>{ const f=input.files&&input.files[0]; if(f) handleCsvFile(f); input.value=''; };
     document.body.appendChild(input);
   }
-  function startImportCsv(){
-    if(!cardUi.editingCard) return;
+  function startImportCardsCsv(){
     ensureCsvFileInput();
     document.getElementById('csv-file-input').click();
   }
+  /* Fuzzy-match a CSV's account/institution label to an existing card by name or bank,
+     case-insensitive, either direction — a single unified statement export commonly spells
+     the same card slightly differently than how it was entered ("Chase Sapphire" vs
+     "CHASE SAPPHIRE PREFERRED ...1234"). */
+  function matchCardForGroup(key){
+    const k=(key||'').toLowerCase().trim();
+    if(!k) return null;
+    const found=app.cards.find(c=>{
+      const n=(c.name||'').toLowerCase().trim(), b=(c.bank||'').toLowerCase().trim();
+      return (n && (n.includes(k)||k.includes(n))) || (b && (b.includes(k)||k.includes(b)));
+    });
+    return found ? found.id : null;
+  }
+  function recomputeGroupSuggestion(g){
+    if(g.action==='skip'){ g.newCount=0; g.balanceOverride=0; return; }
+    if(g.action==='create'){
+      g.newCount=g.transactions.length;
+      g.balanceOverride=Math.round(g.transactions.reduce((s,t)=>s+t.amount,0)*100)/100;
+      return;
+    }
+    const card=app.cards.find(c=>c.id===g.action);
+    if(!card){ g.action='create'; recomputeGroupSuggestion(g); return; }
+    const existingIds=new Set((card.transactions||[]).map(txId));
+    const fresh=g.transactions.filter(t=>!existingIds.has(txId(t)));
+    g.newCount=fresh.length;
+    g.balanceOverride=Math.round(((Number(card.balance)||0)+fresh.reduce((s,t)=>s+t.amount,0))*100)/100;
+  }
+  let cardsImportUi = null;
   function handleCsvFile(file){
     if(!file.name.toLowerCase().endsWith('.csv')){ showToast('✗ Please choose a .csv file','#f87171'); return; }
     const reader=new FileReader();
     reader.onerror=()=>showToast('✗ Could not read file','#f87171');
     reader.onload=e=>{
-      const ec=cardUi.editingCard;
-      if(!ec) return;
       const parsed=csvToObjects(e.target.result).map(normalizeTxRow)
         .filter(t=>t.name&&t.amount>0)
         .map(t=>({ ...t, category:(t.category&&t.category.length>1)?t.category:categorizeTx(t.name) }));
       if(!parsed.length){ showToast('✗ No transactions found — check Date/Name/Amount columns','#f87171'); return; }
-      const existingIds=new Set((ec.transactions||[]).map(txId));
-      const fresh=parsed.filter(t=>!existingIds.has(txId(t)));
-      const newSpend=fresh.reduce((s,t)=>s+t.amount,0);
-      ec.transactions=[...fresh.map(t=>({ ...t, id:txId(t) })), ...(ec.transactions||[])];
-      ec.balance=Math.max(0,(Number(ec.balance)||0)+newSpend);
-      ec._importSummary={ filename:file.name, newCount:fresh.length, totalCount:parsed.length, newSpend };
+      const groupsMap=new Map();
+      parsed.forEach(t=>{
+        const key=(t.account||'').trim()||'Unassigned account';
+        if(!groupsMap.has(key)) groupsMap.set(key, []);
+        groupsMap.get(key).push({ ...t, id:txId(t) });
+      });
+      const groups=Array.from(groupsMap.entries()).map(([key,transactions])=>{
+        const g={ key, transactions, action: matchCardForGroup(key) || 'create', newCount:0, balanceOverride:0 };
+        recomputeGroupSuggestion(g);
+        return g;
+      });
+      cardUi.editingCard=null; cardUi.confirmingDeleteCard=false;
+      cardsImportUi={ filename:file.name, groups };
       renderCardsTab();
-      showToast(fresh.length ? `✓ Imported ${fresh.length} new transaction${fresh.length===1?'':'s'}` : 'No new transactions — already imported', fresh.length?'#34d399':'#8b96a8');
     };
     reader.readAsText(file);
+  }
+  function cancelCsvImportReview(){ cardsImportUi=null; renderCardsTab(); }
+  function applyCsvImportReview(){
+    const ui=cardsImportUi;
+    if(!ui) return;
+    let appliedCount=0;
+    ui.groups.forEach(g=>{
+      if(g.action==='skip') return;
+      if(g.action==='create'){
+        const card=makeCard();
+        card.name=g.key;
+        card.transactions=g.transactions;
+        card.balance=Math.max(0,Number(g.balanceOverride)||0);
+        pushCardHistory(card);
+        app.cards.unshift(card);
+        appliedCount++;
+      } else {
+        const idx=app.cards.findIndex(c=>c.id===g.action);
+        if(idx<0) return;
+        const card=app.cards[idx];
+        const existingIds=new Set((card.transactions||[]).map(txId));
+        const fresh=g.transactions.filter(t=>!existingIds.has(txId(t)));
+        card.transactions=[...fresh, ...(card.transactions||[])];
+        card.balance=Math.max(0,Number(g.balanceOverride)||0);
+        pushCardHistory(card);
+        appliedCount++;
+      }
+    });
+    cardsImportUi=null;
+    saveApp();
+    renderCardsTab();
+    showToast(appliedCount ? `✓ Applied import to ${appliedCount} card${appliedCount===1?'':'s'}` : 'Nothing applied — all accounts skipped', appliedCount?'#34d399':'#8b96a8');
+  }
+  function csvImportReviewHtml(){
+    const ui=cardsImportUi;
+    if(!ui) return '';
+    const rows=ui.groups.map(g=>{
+      const opts=`<option value="skip" ${g.action==='skip'?'selected':''}>Skip this account</option>`
+        + `<option value="create" ${g.action==='create'?'selected':''}>Create new card "${escHtml(g.key)}"</option>`
+        + app.cards.map(c=>`<option value="${c.id}" ${g.action===c.id?'selected':''}>Match to: ${escHtml(c.name)}</option>`).join('');
+      return `
+      <div style="padding:12px 14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+          <div style="font-size:13px;color:#fff;font-weight:500;">${escHtml(g.key)}</div>
+          <div style="font-size:10px;color:#8b96a8;flex-shrink:0;">${g.newCount} new / ${g.transactions.length} tx</div>
+        </div>
+        <select data-act="import-map-select" data-group-key="${escAttr(g.key)}" class="ef" style="margin-top:8px;width:100%;">${opts}</select>
+        ${g.action!=='skip'?field('NEW BALANCE (suggested — editable)', `<input type="number" step="0.01" data-act="import-balance-override" data-group-key="${escAttr(g.key)}" value="${g.balanceOverride}" class="ef" />`):''}
+      </div>`;
+    }).join('');
+    return `<div data-act="import-review-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+      <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:460px;width:100%;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">IMPORT REVIEW</div>
+          <button data-act="import-review-cancel" style="background:transparent;border:none;color:#5b6577;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button>
+        </div>
+        <div style="font-size:10px;color:#8b96a8;margin-bottom:12px;">"${escHtml(ui.filename)}" — ${ui.groups.length} account${ui.groups.length===1?'':'s'} detected. Review the match and suggested balance for each before applying.</div>
+        ${rows}
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button data-act="import-review-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Cancel</button>
+          <div style="flex:1;"></div>
+          <button data-act="import-review-apply" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:6px 16px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">Apply Import</button>
+        </div>
+      </div>
+    </div>`;
   }
 
   let cardUi = { editingCard:null, confirmingDeleteCard:false };
@@ -1787,8 +1884,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           ${field('APR %',`<input type="number" min="0" step="0.01" data-act="cf-apr" data-focus-key="cf-apr" value="${ec.apr}" class="ef" />`)}
           ${field('MIN PAYMENT',`<input type="number" min="0" step="0.01" data-act="cf-minpayment" data-focus-key="cf-minpayment" value="${ec.minPayment}" class="ef" />`)}
         </div>
-        <button data-act="import-csv" style="background:transparent;border:1px dashed rgba(148,163,184,.22);color:#8b96a8;padding:7px 14px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;width:100%;margin-top:2px;letter-spacing:.05em;">📄 IMPORT CSV STATEMENT</button>
-        ${ec._importSummary?`<div style="margin-top:8px;padding:8px 10px;border:1px solid #34d39955;background:#34d3991a;border-radius:8px;font-size:10px;color:#34d399;letter-spacing:.02em;line-height:1.5;">✓ Imported ${ec._importSummary.newCount} new of ${ec._importSummary.totalCount} transactions from "${escHtml(ec._importSummary.filename)}"${ec._importSummary.newSpend?` — balance below suggested at +$${ec._importSummary.newSpend.toFixed(2)}, review before saving`:''}</div>`:''}
         ${cardTransactionsHtml(ec)}
         ${cardUi.confirmingDeleteCard?`<div style="margin-top:10px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the card. Tap <b>DELETE</b> again to confirm.</div>`:''}
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;align-items:center;">
@@ -1810,7 +1905,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='card-modal-cancel') el.onclick=()=>cancelCardModal();
       else if(act==='card-modal-save') el.onclick=()=>saveCard();
       else if(act==='card-modal-delete') el.onclick=()=>deleteCard();
-      else if(act==='import-csv') el.onclick=()=>startImportCsv();
       else if(act==='cf-name') el.oninput=e=>updCardField('name',e.target.value);
       else if(act==='cf-bank') el.oninput=e=>updCardField('bank',e.target.value);
       else if(act==='cf-dueday') el.oninput=e=>updCardField('dueDay',e.target.value===''?null:Number(e.target.value));
@@ -1818,6 +1912,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='cf-limit') el.oninput=e=>updCardField('limit',e.target.value===''?0:Number(e.target.value));
       else if(act==='cf-apr') el.oninput=e=>updCardField('apr',e.target.value===''?0:Number(e.target.value));
       else if(act==='cf-minpayment') el.oninput=e=>updCardField('minPayment',e.target.value===''?0:Number(e.target.value));
+      else if(act==='import-cards-csv') el.onclick=()=>startImportCardsCsv();
+      else if(act==='import-map-select') el.onchange=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g){ g.action=e.target.value; recomputeGroupSuggestion(g); renderCardsTab(); } };
+      else if(act==='import-balance-override') el.oninput=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g) g.balanceOverride=e.target.value===''?0:Number(e.target.value); };
+      else if(act==='import-review-bg') el.onclick=e=>{ if(e.target===el) cancelCsvImportReview(); };
+      else if(act==='import-review-cancel') el.onclick=()=>cancelCsvImportReview();
+      else if(act==='import-review-apply') el.onclick=()=>applyCsvImportReview();
     });
     document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
   }
@@ -1860,10 +1960,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         </div>
         <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
           ${listHtml}
-          <button data-act="new-card" style="background:transparent;border:1px dashed rgba(148,163,184,.22);color:#8b96a8;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:4px;letter-spacing:.05em;">+ ADD CARD</button>
+          <div style="display:flex;gap:8px;margin-top:4px;">
+            <button data-act="new-card" style="flex:1;background:transparent;border:1px dashed rgba(148,163,184,.22);color:#8b96a8;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;letter-spacing:.05em;">+ ADD CARD</button>
+            <button data-act="import-cards-csv" style="flex:1;background:transparent;border:1px dashed rgba(148,163,184,.22);color:#8b96a8;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;letter-spacing:.05em;">📄 IMPORT CSV</button>
+          </div>
         </div>
       </div>
       ${cardModalHtml()}
+      ${csvImportReviewHtml()}
     `;
     attachCardsEvents();
   }
