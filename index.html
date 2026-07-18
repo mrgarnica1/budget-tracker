@@ -1626,7 +1626,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
      suggestion. Bank/Rocket-Money exports vary in whether purchases vs. payments carry
      a sign, so we never silently overwrite the real balance: the imported total is only
      ever a prefilled, still-editable suggestion the user confirms via the normal Save. ── */
-  const SPEND_CAT_COLOR = { Amazon:'#22d3ee', Groceries:'#34d399', 'Gas/EV':'#fbbf24', Dining:'#f87171', Travel:'#9085e9', Streaming:'#d55181', Shopping:'#3987e5', Utilities:'#5b6577', Health:'#2dd4bf', Other:'#8b96a8' };
+  const SPEND_CAT_COLOR = { Amazon:'#22d3ee', Groceries:'#34d399', 'Gas/EV':'#fbbf24', Dining:'#f87171', Travel:'#9085e9', Streaming:'#d55181', Shopping:'#3987e5', Utilities:'#5b6577', Health:'#2dd4bf', Other:'#8b96a8', Payment:'#34d399' };
+  /* Card payments carry standard boilerplate phrasing across virtually every issuer's
+     export — matching on that (rather than trusting the CSV's +/- sign, which varies by
+     institution and export tool) lets a payment reduce the computed balance instead of
+     being counted as more spend, which is what let a single credit card's balance
+     estimate go wrong across many months of ordinary payment cycles. */
+  const PAYMENT_KEYWORDS = ['payment thank you','payment - thank you','thank you for your payment','autopay','auto pay','online payment','electronic payment','internet payment','mobile payment','bill payment','card payment','payment received','web payment'];
+  function isPaymentTx(name){
+    const n=(name||'').toLowerCase();
+    return PAYMENT_KEYWORDS.some(k=>n.includes(k));
+  }
   const SPEND_CAT_KEYWORDS = {
     Amazon:['amazon','whole foods'],
     Groceries:['safeway','kroger','vons','ralphs','trader joe','aldi','walmart','target','sprouts','grocery','market','food'],
@@ -1717,15 +1727,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     });
     return found ? found.id : null;
   }
+  function txNetAmount(t){ return t.category==='Payment' ? -t.amount : t.amount; }
   function recomputeGroupSuggestion(g){
     if(g.action==='skip'){ g.newCount=0; g.balanceOverride=0; return; }
     if(g.action==='create'){
-      // Never guess a starting balance for a brand-new card from summed transaction
-      // history — a statement export can span months/years, so that sum has no
-      // reliable relationship to today's actual balance. Always start at $0 and let
-      // the user type in the real balance; the total spend is shown as an FYI only.
+      // A brand-new card's suggested balance is purchases minus payments across the
+      // whole file, never a raw sum — that's what makes a normal payment cycle net out
+      // instead of piling on top of every prior month's spend. Still just a suggestion:
+      // fully editable, and flagged with a caution note when the file's date range is
+      // long enough that older activity outside the export could be missing.
       g.newCount=g.transactions.length;
-      g.balanceOverride=0;
+      const net=g.transactions.reduce((s,t)=>s+txNetAmount(t),0);
+      g.balanceOverride=Math.max(0,Math.round(net*100)/100);
       return;
     }
     const card=app.cards.find(c=>c.id===g.action);
@@ -1733,7 +1746,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const existingIds=new Set((card.transactions||[]).map(txId));
     const fresh=g.transactions.filter(t=>!existingIds.has(txId(t)));
     g.newCount=fresh.length;
-    g.balanceOverride=Math.round(((Number(card.balance)||0)+fresh.reduce((s,t)=>s+t.amount,0))*100)/100;
+    const net=fresh.reduce((s,t)=>s+txNetAmount(t),0);
+    g.balanceOverride=Math.max(0,Math.round(((Number(card.balance)||0)+net)*100)/100);
   }
   let cardsImportUi = null;
   function handleCsvFile(file){
@@ -1743,7 +1757,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     reader.onload=e=>{
       const parsed=csvToObjects(e.target.result).map(normalizeTxRow)
         .filter(t=>t.name&&t.amount>0)
-        .map(t=>({ ...t, category:(t.category&&t.category.length>1)?t.category:categorizeTx(t.name) }));
+        .map(t=>({ ...t, category: isPaymentTx(t.name) ? 'Payment' : ((t.category&&t.category.length>1)?t.category:categorizeTx(t.name)) }));
       if(!parsed.length){ showToast('✗ No transactions found — check Date/Name/Amount columns','#f87171'); return; }
       const groupsMap=new Map();
       parsed.forEach(t=>{
@@ -1753,10 +1767,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       });
       const groups=Array.from(groupsMap.entries()).map(([key,transactions])=>{
         const accountType=transactions[0].accountType||'';
-        const totalSpend=Math.round(transactions.reduce((s,t)=>s+t.amount,0)*100)/100;
+        const totalPurchases=Math.round(transactions.filter(t=>t.category!=='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
+        const totalPayments=Math.round(transactions.filter(t=>t.category==='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
+        const dates=transactions.map(t=>new Date(t.date).getTime()).filter(t=>!isNaN(t));
+        const dateSpanDays=dates.length>=2?Math.round((Math.max(...dates)-Math.min(...dates))/86400000):0;
         const matched=matchCardForGroup(key);
         const action=matched || (looksLikeCreditCardType(accountType) ? 'create' : 'skip');
-        const g={ key, accountType, totalSpend, transactions, action, newCount:0, balanceOverride:0 };
+        const g={ key, accountType, totalPurchases, totalPayments, dateSpanDays, transactions, action, newCount:0, balanceOverride:0 };
         recomputeGroupSuggestion(g);
         return g;
       });
@@ -1814,8 +1831,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         </div>
         ${notCard?`<div style="font-size:9px;color:#fbbf24;margin-top:4px;">Detected as ${escHtml(g.accountType)}, not a credit card — defaulted to Skip</div>`:''}
         <select data-act="import-map-select" data-group-key="${escAttr(g.key)}" class="ef" style="margin-top:8px;width:100%;">${opts}</select>
-        ${g.action==='create'?`<div style="font-size:9px;color:#8b96a8;margin-top:8px;">Total spend in file: $${g.totalSpend.toLocaleString(undefined,{maximumFractionDigits:2})} — new cards start at $0; enter the real current balance below.</div>`:''}
-        ${g.action!=='skip'?field(g.action==='create'?'STARTING BALANCE':'NEW BALANCE (suggested — editable)', `<input type="number" step="0.01" data-act="import-balance-override" data-group-key="${escAttr(g.key)}" value="${g.balanceOverride}" class="ef" />`):''}
+        ${g.action==='create'?`<div style="font-size:9px;color:#8b96a8;margin-top:8px;">Purchases $${g.totalPurchases.toLocaleString(undefined,{maximumFractionDigits:2})}${g.totalPayments?` − payments $${g.totalPayments.toLocaleString(undefined,{maximumFractionDigits:2})}`:''} = suggested $${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})} — review before applying.</div>`:''}
+        ${g.action!=='skip'&&g.dateSpanDays>45?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">⚠ This file spans ${g.dateSpanDays} days — if older activity isn't included, the suggested balance may not match today's real balance. Double-check before applying.</div>`:''}
+        ${g.action!=='skip'?field(g.action==='create'?'STARTING BALANCE (suggested — editable)':'NEW BALANCE (suggested — editable)', `<input type="number" step="0.01" data-act="import-balance-override" data-group-key="${escAttr(g.key)}" value="${g.balanceOverride}" class="ef" />`):''}
       </div>`;
     }).join('');
     return `<div data-act="import-review-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
@@ -1885,23 +1903,25 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(!ec.transactions||!ec.transactions.length) return '';
     limit=limit||8;
     const byCat={};
-    ec.transactions.forEach(t=>{ byCat[t.category]=(byCat[t.category]||0)+t.amount; });
+    ec.transactions.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+t.amount; });
     const catChips=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,tot])=>
       `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;margin:2px 10px 2px 0;"><span style="width:6px;height:6px;border-radius:2px;background:${SPEND_CAT_COLOR[cat]||'#8b96a8'};"></span>${escHtml(cat)} $${tot.toFixed(0)}</span>`
     ).join('');
-    const rows=ec.transactions.slice(0,limit).map(t=>`
+    const rows=ec.transactions.slice(0,limit).map(t=>{
+      const isPmt=t.category==='Payment';
+      return `
       <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:11px;">
         <div style="flex:1;min-width:0;">
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
           <div style="font-size:9px;color:#5b6577;">${escHtml(t.date)}</div>
         </div>
         <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${SPEND_CAT_COLOR[t.category]||'#8b96a8'}18;color:${SPEND_CAT_COLOR[t.category]||'#8b96a8'};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
-        <span style="color:#eef2f8;flex-shrink:0;">$${t.amount.toFixed(2)}</span>
-      </div>`).join('');
+        <span style="color:${isPmt?'#34d399':'#eef2f8'};flex-shrink:0;">${isPmt?'-':''}$${t.amount.toFixed(2)}</span>
+      </div>`;
+    }).join('');
     const label=limit>=ec.transactions.length?`TRANSACTIONS (${ec.transactions.length})`:`RECENT TRANSACTIONS (showing ${limit} of ${ec.transactions.length})`;
     return `<div style="margin-top:12px;border-top:1px solid rgba(148,163,184,.14);padding-top:10px;">
-      <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">SPEND BY CATEGORY</div>
-      <div style="margin-bottom:10px;">${catChips}</div>
+      ${catChips?`<div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">SPEND BY CATEGORY</div><div style="margin-bottom:10px;">${catChips}</div>`:''}
       <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:4px;">${label}</div>
       <div style="max-height:${limit>8?'400px':'200px'};overflow-y:auto;">${rows}</div>
     </div>`;
