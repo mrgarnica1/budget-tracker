@@ -299,7 +299,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   const APP_KEY  = 'budget-tracker-app-v2';
   const OLD_KEY  = 'budget-tracker-v1';
 
-  let app = { checks: [], currentCheckId: null, cards: [], investments: [] };
+  let app = { checks: [], currentCheckId: null, cards: [], investments: [], loans: [] };
 
   // Which bottom-tab is showing. Paychecks preserves the app's existing behavior exactly
   // (renderHome/render, unchanged); Overview/Cards/Invest are new. Cards and Investments
@@ -441,9 +441,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           app.checks = parsed.checks;
           app.cards = parsed.cards || app.cards || [];
           app.investments = parsed.investments || app.investments || [];
+          app.loans = parsed.loans || app.loans || [];
           // Current check may have been deleted remotely
           if (app.currentCheckId && !app.checks.find(c => c.id === app.currentCheckId)) app.currentCheckId = null;
-          localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, updatedAt: d.updatedAt }));
+          localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, loans: app.loans, updatedAt: d.updatedAt }));
           if (sessionStorage.getItem(PIN_SESSION_KEY) === '1') renderApp();
           applyingRemote = false;
           const ind = document.querySelector('[data-cloud-indicator]');
@@ -460,7 +461,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       if (seededDefaults) return;            // never overwrite an existing cloud doc with unsynced default data
       const updatedAt = Date.now();
       lastCloudStamp = updatedAt;
-      cloudDoc.set({ json: JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments }), updatedAt })
+      cloudDoc.set({ json: JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, loans: app.loans }), updatedAt })
         .then(() => {
           const ind = document.querySelector('[data-cloud-indicator]');
           if (ind) { ind.textContent = '● synced · ' + ((cloudUser && cloudUser.email) || '').split('@')[0]; ind.style.color = '#34d399'; }
@@ -476,7 +477,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   /* ── Persistence ───────────────────────────────────────────── */
   function saveApp() {
-    try { localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, updatedAt: Date.now(), seeded: seededDefaults })); }
+    try { localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, loans: app.loans, updatedAt: Date.now(), seeded: seededDefaults })); }
     catch(e) { console.warn('Save failed', e); }
     pushCloud();
   }
@@ -487,7 +488,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       if (raw) {
         const data = JSON.parse(raw);
         if (data.checks && data.checks.length) {
-          app.checks = data.checks; app.cards = data.cards || []; app.investments = data.investments || []; lastCloudStamp = data.updatedAt || 0; seededDefaults = !!data.seeded;
+          app.checks = data.checks; app.cards = data.cards || []; app.investments = data.investments || []; app.loans = data.loans || []; lastCloudStamp = data.updatedAt || 0; seededDefaults = !!data.seeded;
           // Recovery for data written by older code without the seeded flag: a single
           // template-shaped check with nothing paid is an unsynced seed, not user data —
           // existing cloud data must win over it.
@@ -1482,6 +1483,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       renderCardsTab();
     } else if (activeTab === 'invest') {
       renderInvestTab();
+    } else if (activeTab === 'loans') {
+      renderLoansTab();
     }
     updateBottomNavActive();
   }
@@ -1516,6 +1519,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       <button class="bnav-tab" data-tab="invest">
         <svg width="18" height="18" viewBox="0 0 14 14" fill="none"><path d="M1.5 11.5v-2.8l3-3.2 2.6 2 3.9-4.5 1.5 1.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Invest</span>
+      </button>
+      <button class="bnav-tab" data-tab="loans">
+        <svg width="18" height="18" viewBox="0 0 14 14" fill="none"><path d="M1 5.5 7 1.5l6 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 5.5v6.5M12 5.5v6.5M1 12h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4.5 8v3M7 8v3M9.5 8v3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <span>Loans</span>
       </button>
     `;
     document.body.appendChild(nav);
@@ -1968,6 +1975,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const act=el.dataset.act, id=el.dataset.cardId||null;
       if(act==='new-card') el.onclick=()=>startNewCard();
       else if(act==='clear-all-cards') el.onclick=()=>clearAllCards();
+      else if(act==='load-starter-data') el.onclick=()=>seedMyAccounts();
       else if(act==='edit-card') el.onclick=()=>startEditCard(id);
       else if(act==='view-card') el.onclick=()=>startViewCard(id);
       else if(act==='card-detail-back') el.onclick=()=>closeCardDetail();
@@ -2066,6 +2074,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const listHtml = cards.length === 0 ? `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No cards yet — tap "+ Add Card" to start tracking balances.</div>
+      ${(app.loans.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans)</button>`:''}
     ` : `
       <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
         <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL BALANCE</div>
@@ -2242,6 +2251,246 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       ${investmentModalHtml()}
     `;
     attachInvestEvents();
+  }
+
+  /* ── Loans — mortgages, personal loans, leases, BNPL: revolving-credit-free debt tracked
+     separately from Cards. Mirrors the Investments module's conventions (field() helper,
+     .ef inputs, two-tap confirm-delete, one-snapshot-per-day history). ── */
+  function makeLoan(){
+    return { id:'loan-'+Date.now()+'-'+Math.random().toString(36).slice(2,6), name:'', balance:0, original:null, note:'', paid:false, createdAt:toDS(new Date()), history:[] };
+  }
+  function pushLoanHistory(loan){
+    const today=toDS(new Date());
+    if(!loan.history) loan.history=[];
+    const last=loan.history[loan.history.length-1];
+    if(last&&last.date===today) last.balance=loan.balance;
+    else loan.history.push({ date:today, balance:loan.balance });
+  }
+  let loanUi = { editingLoan:null, confirmingDeleteLoan:false };
+  function startNewLoan(){ loanUi.editingLoan=makeLoan(); loanUi.confirmingDeleteLoan=false; renderLoansTab(); }
+  function startEditLoan(id){ const l=app.loans.find(l=>l.id===id); if(!l) return; loanUi.editingLoan=Object.assign({},l); loanUi.confirmingDeleteLoan=false; renderLoansTab(); }
+  function cancelLoanModal(){ loanUi.editingLoan=null; loanUi.confirmingDeleteLoan=false; renderLoansTab(); }
+  function updLoanField(field,value){ if(!loanUi.editingLoan) return; loanUi.editingLoan[field]=value; }
+  function saveLoan(){
+    const el=loanUi.editingLoan;
+    if(!el) return;
+    const isNew=!app.loans.find(l=>l.id===el.id);
+    const cleaned={
+      id:el.id, name:((el.name||'').trim())||'Untitled Loan',
+      balance:Math.max(0,Number(el.balance)||0),
+      original:(el.original===''||el.original==null)?null:Math.max(0,Number(el.original)||0),
+      note:(el.note||'').trim(), paid:!!el.paid,
+      createdAt:el.createdAt||toDS(new Date()), history:el.history||[],
+    };
+    pushLoanHistory(cleaned);
+    if(isNew) app.loans.unshift(cleaned);
+    else { const idx=app.loans.findIndex(l=>l.id===el.id); if(idx>=0) app.loans[idx]=cleaned; }
+    loanUi.editingLoan=null; loanUi.confirmingDeleteLoan=false;
+    saveApp(); renderLoansTab();
+  }
+  function deleteLoan(){
+    const el=loanUi.editingLoan;
+    if(!el||el.id==null) return;
+    if(!loanUi.confirmingDeleteLoan){ loanUi.confirmingDeleteLoan=true; renderLoansTab(); return; }
+    app.loans=app.loans.filter(l=>l.id!==el.id);
+    loanUi.editingLoan=null; loanUi.confirmingDeleteLoan=false;
+    saveApp(); renderLoansTab();
+  }
+
+  function loanModalHtml(){
+    const el=loanUi.editingLoan;
+    if(!el) return '';
+    const isNew=!app.loans.find(l=>l.id===el.id);
+    return `<div data-act="loan-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+      <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">${isNew?'+ NEW LOAN':'EDIT LOAN'}</div>
+          <button data-act="loan-modal-cancel" style="background:transparent;border:none;color:#5b6577;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button>
+        </div>
+        ${field('NAME',`<input type="text" data-act="lf-name" data-focus-key="lf-name" value="${escAttr(el.name||'')}" placeholder="e.g. Primary Mortgage" class="ef" />`)}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          ${field('BALANCE',`<input type="number" min="0" step="0.01" data-act="lf-balance" data-focus-key="lf-balance" value="${el.balance}" class="ef" />`)}
+          ${field('ORIGINAL AMOUNT',`<input type="number" min="0" step="0.01" data-act="lf-original" data-focus-key="lf-original" value="${el.original==null?'':el.original}" placeholder="optional" class="ef" />`)}
+        </div>
+        ${field('NOTE',`<input type="text" data-act="lf-note" data-focus-key="lf-note" value="${escAttr(el.note||'')}" placeholder="e.g. Primary home, Anaheim" class="ef" />`)}
+        <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11px;color:#8b96a8;cursor:pointer;">
+          <input type="checkbox" data-act="lf-paid" ${el.paid?'checked':''} style="width:15px;height:15px;accent-color:#34d399;" />
+          Paid off
+        </label>
+        ${loanUi.confirmingDeleteLoan?`<div style="margin-top:10px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the loan. Tap <b>DELETE</b> again to confirm.</div>`:''}
+        <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;align-items:center;">
+          ${!isNew?`<button data-act="loan-modal-delete" style="background:${loanUi.confirmingDeleteLoan?'#f87171':'transparent'};border:1px solid ${loanUi.confirmingDeleteLoan?'#f87171':'#f8717155'};color:${loanUi.confirmingDeleteLoan?'#070b14':'#f87171'};padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:${loanUi.confirmingDeleteLoan?'600':'400'};">${loanUi.confirmingDeleteLoan?'CONFIRM DELETE':'Delete'}</button>`:''}
+          <div style="flex:1;"></div>
+          <button data-act="loan-modal-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Cancel</button>
+          <button data-act="loan-modal-save" style="background:#34d399;border:1px solid #34d399;color:#070b14;padding:6px 16px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">${isNew?'Add Loan':'Save'}</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function attachLoanEvents(){
+    document.querySelectorAll('[data-act]').forEach(el=>{
+      const act=el.dataset.act, id=el.dataset.loanId||null;
+      if(act==='new-loan') el.onclick=()=>startNewLoan();
+      else if(act==='edit-loan') el.onclick=()=>startEditLoan(id);
+      else if(act==='loan-modal-bg') el.onclick=e=>{ if(e.target===el) cancelLoanModal(); };
+      else if(act==='loan-modal-cancel') el.onclick=()=>cancelLoanModal();
+      else if(act==='loan-modal-save') el.onclick=()=>saveLoan();
+      else if(act==='loan-modal-delete') el.onclick=()=>deleteLoan();
+      else if(act==='load-starter-data') el.onclick=()=>seedMyAccounts();
+      else if(act==='lf-name') el.oninput=e=>updLoanField('name',e.target.value);
+      else if(act==='lf-balance') el.oninput=e=>updLoanField('balance',e.target.value===''?0:Number(e.target.value));
+      else if(act==='lf-original') el.oninput=e=>updLoanField('original',e.target.value===''?null:Number(e.target.value));
+      else if(act==='lf-note') el.oninput=e=>updLoanField('note',e.target.value);
+      else if(act==='lf-paid') el.onchange=e=>updLoanField('paid',e.target.checked);
+    });
+    document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
+  }
+
+  function renderLoansTab(){
+    const root = document.getElementById('root');
+    const loans = app.loans;
+    const totalDebt = loans.filter(l=>!l.paid).reduce((s,l)=>s+(Number(l.balance)||0),0);
+
+    const emptyStateHtml = `
+      <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No loans yet — tap "+ Add Loan" to start tracking mortgages, personal loans, and leases.</div>
+      ${(app.cards.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans)</button>`:''}
+    `;
+    const listHtml = loans.length === 0 ? emptyStateHtml : `
+
+      <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
+        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL DEBT</div>
+        <div class="syne" style="font-size:24px;margin-top:4px;color:#f87171;">$${totalDebt.toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">across ${loans.filter(l=>!l.paid).length} loan${loans.filter(l=>!l.paid).length===1?'':'s'}</span></div>
+      </div>
+      ${loans.map(l=>{
+        const paidPct = (l.original && l.original>0) ? Math.max(0,Math.min(100,Math.round((1-(l.balance/l.original))*100))) : null;
+        const c = l.paid ? '#34d399' : '#f0a500';
+        return `
+        <div data-act="edit-loan" data-loan-id="${l.id}" style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;">
+            <div style="font-size:13px;color:#fff;font-weight:500;">${escHtml(l.name)}</div>
+            <div class="syne" style="font-size:15px;color:${l.paid?'#34d399':'#eef2f8'};">${l.paid?'PAID':'$'+(l.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+          </div>
+          <div style="font-size:10px;color:#8b96a8;margin-top:2px;">${escHtml(l.note)||'—'}</div>
+          ${paidPct!==null?`
+          <div style="margin-top:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:#8b96a8;margin-bottom:4px;"><span>${paidPct}% paid</span><span>of $${l.original.toLocaleString()}</span></div>
+            <div style="height:5px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;"><div style="height:100%;width:${paidPct}%;background:${c};"></div></div>
+          </div>`:''}
+        </div>`;
+      }).join('')}
+    `;
+
+    root.innerHTML = `
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+        <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
+          <div class="syne" style="font-size:19px;color:#fff;">LO<span class="grad-text">ANS</span></div>
+        </div>
+        <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
+          ${listHtml}
+          <button data-act="new-loan" style="background:transparent;border:1px dashed rgba(148,163,184,.22);color:#8b96a8;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:4px;letter-spacing:.05em;">+ ADD LOAN</button>
+        </div>
+      </div>
+      ${loanModalHtml()}
+    `;
+    attachLoanEvents();
+  }
+
+  /* ── One-time starter data — real account terms (APR, rewards, perks) are public/static
+     card-agreement facts with no live source, so they're seeded once from a manually-curated
+     reference; balances are the real current figures supplied directly, not carried over from
+     any stale reference. Only offered while both Cards and Loans are empty. ── */
+  function seedMyAccounts(){
+    if(app.cards.length || app.loans.length) return;
+    const today = toDS(new Date());
+    const SEED_CARDS = [
+      { name:'Apple Card', bank:'Apple', balance:1703, apr:21.24, annualFee:0,
+        rewards:['3% Apple & select partners (Nike, Exxon, Walgreens)','2% via Apple Pay','1% physical card'],
+        perks:['Daily Cash — rewards credited same day','Auto-deposits to Apple high-yield savings','Apple Card Monthly Installments (interest-free)','Zero fees: no annual, late, over-limit, foreign TX','Transitioning Goldman Sachs → Chase by 2028'],
+        highlight:'Best for Apple products and Apple Pay merchants. Zero fee structure.', warning:'No purchase protection or extended warranty' },
+      { name:'Amex Blue Cash Everyday', bank:'American Express', balance:618, apr:19.99, annualFee:0,
+        rewards:['3% U.S. supermarkets (up to $6k/yr)','3% U.S. online retail (up to $6k/yr)','3% U.S. gas stations (up to $6k/yr)','1% everything else'],
+        perks:['$7/mo Disney+/Hulu/ESPN bundle credit ($84/yr)','0% intro APR 15 months','No annual fee','Enrollment required for Disney+ credit'],
+        highlight:'$84/yr Disney+ credit + triple 3% on groceries, gas, online', warning:'3% categories each capped at $6k/yr. Enroll for Disney+ credit!' },
+      { name:'Citi Diamond Preferred (...1863)', bank:'Citi', balance:0, apr:0, annualFee:0,
+        rewards:['No rewards — purpose-built balance transfer card'],
+        perks:['0% APR for 21 months on balance transfers','29.24% standard APR after promo','No annual fee'],
+        highlight:'21-month 0% BT — best tool to eliminate high-APR balances', warning:'BT fee applies (3–5%). Pay off before promo ends.' },
+      { name:'Citi Diamond Preferred (...3022)', bank:'Citi', balance:9813, apr:0, annualFee:0,
+        rewards:['No rewards — purpose-built balance transfer card'],
+        perks:['0% APR for 21 months on balance transfers','29.24% standard APR after promo','No annual fee'],
+        highlight:'21-month 0% BT — best tool to eliminate high-APR balances', warning:'BT fee applies (3–5%). Pay off before promo ends.' },
+      { name:'Costco Anywhere Visa (Citi)', bank:'Citi', balance:43, apr:19.99, annualFee:0,
+        rewards:['4% gas & EV charging (first $7k/yr)','3% restaurants & travel','2% Costco','1% everywhere else'],
+        perks:['Best EV charging card — 4% back','Annual cash back as Costco reward certificate','Requires Costco membership','No foreign transaction fee'],
+        highlight:'Top card for gas & EV charging', warning:'Cash back only redeemable at Costco annually' },
+      { name:'Chase Amazon Prime Visa', bank:'Chase', balance:1450, apr:19.99, annualFee:0,
+        rewards:['5% Amazon.com & Whole Foods','5% Chase Travel (with Prime)','2% restaurants, gas, drugstores','1% everywhere else'],
+        perks:['No foreign transaction fee','Purchase protection & extended warranty','Zero fraud liability','Requires active Amazon Prime'],
+        highlight:'Best card for Amazon and Whole Foods — 5% back', warning:'Rewards devalued if Prime lapses' },
+      { name:'Discover it (...6275)', bank:'Discover', balance:0, apr:27.24, annualFee:0,
+        rewards:['5% rotating categories (up to $1,500/qtr)','1% everything else'],
+        perks:['Cashback Match™ — first-year cash back doubled','0% intro APR 15 months','No foreign transaction fee','Free FICO score + SSN dark web monitoring'],
+        highlight:'Cashback Match in year 1 doubles all earnings', warning:'Highest APR in portfolio — priority payoff target' },
+      { name:'Discover it (...8307)', bank:'Discover', balance:3729, apr:27.24, annualFee:0,
+        rewards:['5% rotating categories (up to $1,500/qtr)','1% everything else'],
+        perks:['Cashback Match™ — first-year cash back doubled','0% intro APR 15 months','No foreign transaction fee','Free FICO score + SSN dark web monitoring'],
+        highlight:'Cashback Match in year 1 doubles all earnings', warning:'Highest APR in portfolio — priority payoff target' },
+      { name:'SchoolsFirst FCU (Mastercard Inspire)', bank:'SchoolsFirst FCU', balance:0, apr:14.75, annualFee:0,
+        rewards:['Standard rewards program'],
+        perks:['Lowest APR in entire portfolio','Credit union — member-owned','Keep open as emergency low-cost card'],
+        highlight:'Only card worth carrying a balance on if necessary', warning:'Keep at $0 — hold as safety valve' },
+      { name:'Citi My Best Buy', bank:'Citi', balance:35, apr:29.99, annualFee:0,
+        rewards:['5% Best Buy (in-store & online)','3% gas','2% dining','1% everywhere'],
+        perks:['Special financing at Best Buy','Flex Plan for big purchases'],
+        highlight:'Best card for Best Buy — 5% back', warning:'Very high APR — pay in full each month' },
+      { name:'PayPal Cashback Mastercard', bank:'PayPal', balance:538, apr:26.99, annualFee:0,
+        rewards:['2% cash back everywhere — no categories'],
+        perks:['Unlimited flat 2% — no activation','Deposits to PayPal balance','No annual fee'],
+        highlight:'Simplest catch-all — 2% everywhere', warning:'High APR — keep at $0 after payoff' },
+      { name:'Capital One Quicksilver', bank:'Capital One', balance:0, apr:29.99, annualFee:0,
+        rewards:['1.5% cash back everywhere'],
+        perks:['Simple flat rate','No foreign transaction fee'],
+        highlight:'Simple no-fee backup card', warning:'Compare against other cash-back cards for best rate' },
+      { name:'Capital One Venture (...2731)', bank:'Capital One', balance:0.99, apr:29.99, annualFee:0,
+        rewards:['2x miles everywhere'],
+        perks:['Miles transferable to 15+ partners','No foreign transaction fee'],
+        highlight:'Solid backup travel card', warning:'Venture X outperforms for all spend' },
+      { name:'Capital One Venture (...9826)', bank:'Capital One', balance:803, apr:29.99, annualFee:0,
+        rewards:['2x miles everywhere'],
+        perks:['Miles transferable to 15+ partners','No foreign transaction fee'],
+        highlight:'Solid backup travel card', warning:'Venture X outperforms for all spend' },
+      { name:'Capital One Venture X', bank:'Capital One', balance:4113, apr:29.99, annualFee:395,
+        rewards:['10x miles hotels & rental cars (Cap1 Travel)','5x flights & vacation rentals (Cap1 Travel)','2x miles everywhere else'],
+        perks:['$300 annual travel credit (Capital One Travel)','10,000 anniversary bonus miles (~$100)','Priority Pass lounge — 1,300+ lounges worldwide','Capital One Lounge access (JFK, DEN, DFW+)','$120 Global Entry/TSA PreCheck credit (4yr)','$800 cell phone protection (pay bill w/ card)','Primary rental car insurance','Trip delay & cancellation coverage','No foreign transaction fees','Guest lounge requires $75K spend/yr'],
+        highlight:'$300 travel credit + 10K miles ≈ $400/yr value — net fee ~$0', warning:'Guest lounge fee now applies at Priority Pass' },
+      { name:"Sam's Club Mastercard", bank:"Sam's Club", balance:827.68, limit:10700, dueDay:20, minPayment:0, apr:22.99, annualFee:0,
+        rewards:["5% Sam's Club fuel (first $6k/yr)",'3% dining & travel','1% everywhere else'],
+        perks:["Cash back redeemable at Sam's Club",'No foreign transaction fee'],
+        highlight:"5% at Sam's Club fuel", warning:"Cash back only redeemable at Sam's Club annually" },
+    ];
+    const SEED_LOANS = [
+      { name:'Primary Mortgage', balance:468509, original:537000, note:'Primary home — Anaheim, CA', paid:false },
+      { name:'SoFi Personal Loan', balance:14612, original:21000, note:'Personal loan', paid:false },
+      { name:'2022 Tesla Model Y', balance:15598, original:null, note:'Auto loan', paid:false },
+      { name:'Tesla Model 3', balance:3100, original:null, note:'Auto lease', paid:false },
+      { name:'02 Personal Loan', balance:1422, original:null, note:'Personal loan', paid:false },
+      { name:'Overdraft Protection', balance:40, original:null, note:'Overdraft protection line', paid:false },
+      { name:'Klarna', balance:49.69, original:null, note:'Buy now pay later', paid:false },
+      { name:'Affirm', balance:0, original:null, note:'Buy now pay later', paid:true },
+      { name:'SchoolsFirst Loan', balance:0, original:null, note:'Fully paid off', paid:true },
+    ];
+    SEED_CARDS.forEach(sc=>{
+      const c = Object.assign(makeCard(), sc, { createdAt:today, history:[{date:today,balance:sc.balance}] });
+      app.cards.push(c);
+    });
+    SEED_LOANS.forEach(sl=>{
+      const l = Object.assign(makeLoan(), sl, { createdAt:today, history:[{date:today,balance:sl.balance}] });
+      app.loans.push(l);
+    });
+    saveApp();
+    renderApp();
+    showToast('✓ Loaded 16 cards + 9 loans','#34d399');
   }
 
   /* ── Boot ──────────────────────────────────────────────────── */
