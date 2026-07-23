@@ -2205,7 +2205,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const listHtml = allCards.length === 0 ? `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No cards yet — tap "+ Add Card" to start tracking balances.</div>
-      ${(app.loans.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans)</button>`:''}
+      ${(app.loans.length===0&&app.investments.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans + 7 investments)</button>`:''}
     ` : (cards.length===0 ? `
       <div style="padding:30px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No cards for "${escHtml(cardUi.ownerFilter)}".</div>
     ` : cards.map(c=>{
@@ -2618,6 +2618,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     document.querySelectorAll('[data-act]').forEach(el=>{
       const act=el.dataset.act, id=el.dataset.investmentId||null;
       if(act==='new-investment') el.onclick=()=>startNewInvestment();
+      else if(act==='load-starter-data') el.onclick=()=>seedMyAccounts();
       else if(act==='edit-investment') el.onclick=()=>startEditInvestment(id);
       else if(act==='investment-modal-bg') el.onclick=e=>{ if(e.target===el) cancelInvestmentModal(); };
       else if(act==='investment-modal-cancel') el.onclick=()=>cancelInvestmentModal();
@@ -2638,6 +2639,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const listHtml = accounts.length === 0 ? `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No accounts yet — tap "+ Add Account" to start tracking your portfolio.</div>
+      ${(app.cards.length===0&&app.loans.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans + 7 investments)</button>`:''}
     ` : `
       <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
         <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL BALANCE</div>
@@ -2775,7 +2777,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const emptyStateHtml = `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No loans yet — tap "+ Add Loan" to start tracking mortgages, personal loans, and leases.</div>
-      ${(app.cards.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans)</button>`:''}
+      ${(app.cards.length===0&&app.investments.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans + 7 investments)</button>`:''}
     `;
     const listHtml = loans.length === 0 ? emptyStateHtml : `
 
@@ -2822,7 +2824,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
      reference; balances are the real current figures supplied directly, not carried over from
      any stale reference. Only offered while both Cards and Loans are empty. ── */
   function seedMyAccounts(){
-    if(app.cards.length || app.loans.length) return;
+    if(app.cards.length || app.loans.length || app.investments.length) return;
     const today = toDS(new Date());
     const SEED_CARDS = [
       { name:'Apple Card', bank:'Apple', network:'Mastercard', owner:'You', balance:1703, apr:21.24, annualFee:0,
@@ -2901,6 +2903,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       { name:'Affirm', balance:0, original:null, note:'Buy now pay later', paid:true },
       { name:'SchoolsFirst Loan', balance:0, original:null, note:'Fully paid off', paid:true },
     ];
+    const SEED_INVESTMENTS = [
+      { name:'Acorns Investing Account', institution:'Acorns', accountType:'Brokerage', balance:266 },
+      { name:'Maria R Gonzalez - Brokerage', institution:'Vanguard', accountType:'Brokerage', balance:17702 },
+      { name:'Robinhood Individual', institution:'Robinhood', accountType:'Brokerage', balance:6 },
+      { name:'Robinhood Roth IRA', institution:'Robinhood', accountType:'Roth IRA', balance:772 },
+      { name:'Robinhood Traditional IRA', institution:'Robinhood', accountType:'Traditional IRA', balance:26538 },
+      { name:'Spokeo Inc 401(k) Plan', institution:'Paychex', accountType:'401k', balance:99964.75 },
+      { name:'Ensign 401(k)', institution:'Fidelity', accountType:'401k', balance:32496.01 },
+    ];
     SEED_CARDS.forEach(sc=>{
       const c = Object.assign(makeCard(), sc, { createdAt:today, history:[{date:today,balance:sc.balance}] });
       app.cards.push(c);
@@ -2909,9 +2920,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const l = Object.assign(makeLoan(), sl, { createdAt:today, history:[{date:today,balance:sl.balance}] });
       app.loans.push(l);
     });
+    SEED_INVESTMENTS.forEach(si=>{
+      const a = Object.assign(makeInvestment(), si, { createdAt:today, history:[{date:today,balance:si.balance}] });
+      app.investments.push(a);
+    });
     saveApp();
     renderApp();
-    showToast('✓ Loaded 16 cards + 9 loans','#34d399');
+    showToast('✓ Loaded 16 cards + 9 loans + 7 investments','#34d399');
   }
 
   /* ── Boot ──────────────────────────────────────────────────── */
