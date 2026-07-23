@@ -66,6 +66,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .cards-subnav::-webkit-scrollbar { display: none; }
 .cst { flex-shrink: 0; font-size: 12px; font-weight: 600; padding: 9px 12px 10px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #8b96a8; cursor: pointer; font-family: inherit; white-space: nowrap; margin-bottom: -1px; }
 .cst.on { color: #fff; border-bottom-color: #e8b565; }
+.cardface-no-logo svg { display: none; }
 .cards-body.cards-slide-next { animation: cardsSlideFromRight .22s cubic-bezier(.22,.68,.35,1) both; }
 .cards-body.cards-slide-prev { animation: cardsSlideFromLeft .22s cubic-bezier(.22,.68,.35,1) both; }
 @keyframes cardsSlideFromRight { from { transform: translateX(14px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
@@ -1779,6 +1780,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
      a sign, so we never silently overwrite the real balance: the imported total is only
      ever a prefilled, still-editable suggestion the user confirms via the normal Save. ── */
   const SPEND_CAT_COLOR = { Amazon:'#22d3ee', Groceries:'#34d399', 'Gas/EV':'#fbbf24', Dining:'#f87171', Travel:'#9085e9', Streaming:'#d55181', Shopping:'#3987e5', Utilities:'#5b6577', Health:'#2dd4bf', Other:'#8b96a8', Payment:'#34d399' };
+  /* CSV imports often carry category strings straight from the bank (e.g. "Auto Insurance",
+     "Savings Transfer") that don't match any of the canonical buckets above — those all used
+     to fall back to the same grey dot. Known categories keep their canonical color; anything
+     else gets a distinct color from this fallback palette instead of grey-on-grey. */
+  const SPEND_CAT_FALLBACK_PALETTE = ['#5b9bd5','#e8b565','#7dd3a0','#e0839a','#9b8cd9','#5bc4c4','#d9a05b','#8fa3d1'];
+  function categoryColorMap(categories){
+    const map={}; let i=0;
+    categories.forEach(cat=>{
+      map[cat] = SPEND_CAT_COLOR[cat] || SPEND_CAT_FALLBACK_PALETTE[i++%SPEND_CAT_FALLBACK_PALETTE.length];
+    });
+    return map;
+  }
   /* Card payments carry standard boilerplate phrasing across virtually every issuer's
      export — matching on that (rather than trusting the CSV's +/- sign, which varies by
      institution and export tool) lets a payment reduce the computed balance instead of
@@ -2097,7 +2110,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     </div>`;
   }
 
-  let cardUi = { editingCard:null, confirmingDeleteCard:false, viewingCardId:null, confirmingClearAll:false, subTab:'all', ownerFilter:'All', sortBy:'balance-desc', movingCardId:null, moveDestId:null, moveBalanceOverride:null };
+  let cardUi = { editingCard:null, confirmingDeleteCard:false, viewingCardId:null, confirmingClearAll:false, subTab:'all', ownerFilter:'All', sortBy:'balance-desc', movingCardId:null, moveDestId:null, moveBalanceOverride:null, detailTab:'overview' };
   const CARD_SORTS = [
     ['balance-desc','Balance (high to low)'], ['balance-asc','Balance (low to high)'],
     ['apr-desc','APR (high to low)'], ['apr-asc','APR (low to high)'], ['name-asc','Name (A–Z)'],
@@ -2122,7 +2135,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   }
   function startNewCard(){ cardUi.editingCard=makeCard(); cardUi.confirmingDeleteCard=false; renderCardsTab(); }
   function startEditCard(id){ const c=app.cards.find(c=>c.id===id); if(!c) return; cardUi.editingCard=Object.assign({},c); cardUi.confirmingDeleteCard=false; renderCardsTab(); }
-  function startViewCard(id){ const c=app.cards.find(c=>c.id===id); if(!c) return; cardUi.viewingCardId=id; renderCardsTab(); }
+  function startViewCard(id){ const c=app.cards.find(c=>c.id===id); if(!c) return; cardUi.viewingCardId=id; cardUi.detailTab='overview'; renderCardsTab(); }
   function closeCardDetail(){ cardUi.viewingCardId=null; renderCardsTab(); }
   function cancelCardModal(){ cardUi.editingCard=null; cardUi.confirmingDeleteCard=false; renderCardsTab(); }
   function updCardField(field,value){ if(!cardUi.editingCard) return; cardUi.editingCard[field]=value; }
@@ -2201,31 +2214,50 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     showToast(`✓ Moved ${movedCount} transaction${movedCount===1?'':'s'} to ${destName}`,'#34d399');
   }
 
-  function cardTransactionsHtml(ec, limit){
-    if(!ec.transactions||!ec.transactions.length) return '';
-    limit=limit||8;
+  function cardSpendAndTransactionsHtml(c){
+    const transactions=c.transactions||[];
+    if(!transactions.length) return '';
     const byCat={};
-    ec.transactions.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+t.amount; });
-    const catChips=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,tot])=>
-      `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;margin:2px 10px 2px 0;"><span style="width:6px;height:6px;border-radius:2px;background:${SPEND_CAT_COLOR[cat]||'#8b96a8'};"></span>${escHtml(cat)} $${tot.toFixed(0)}</span>`
-    ).join('');
-    const rows=ec.transactions.slice(0,limit).map(t=>{
+    transactions.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+t.amount; });
+    const catEntries=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+    const catTotal=catEntries.reduce((s,[,v])=>s+v,0);
+    const colorMap=categoryColorMap(catEntries.map(([cat])=>cat));
+
+    const spendHtml=catEntries.length?`
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;">
+        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">SPEND BY CATEGORY</div>
+        <div style="font-size:11px;color:#8b96a8;">$${catTotal.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+      </div>
+      <div style="height:9px;border-radius:5px;overflow:hidden;display:flex;margin-bottom:12px;background:#1a2233;">
+        ${catEntries.map(([cat,amt])=>`<span style="height:100%;width:${(amt/catTotal*100).toFixed(2)}%;background:${colorMap[cat]};"></span>`).join('')}
+      </div>
+      ${catEntries.map(([cat,amt])=>`
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 0;">
+          <span style="width:8px;height:8px;border-radius:2.5px;flex-shrink:0;background:${colorMap[cat]};"></span>
+          <span style="font-size:12px;color:#dde3ec;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(cat)}</span>
+          <span style="font-size:12px;color:#eef2f8;flex-shrink:0;">$${amt.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+          <span style="font-size:10px;color:#5b6577;width:34px;text-align:right;flex-shrink:0;">${(amt/catTotal*100).toFixed(0)}%</span>
+        </div>`).join('')}
+    `:'';
+
+    const rows=transactions.map(t=>{
       const isPmt=t.category==='Payment';
+      const color=colorMap[t.category]||SPEND_CAT_COLOR[t.category]||'#8b96a8';
       return `
-      <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:11px;">
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:11.5px;">
         <div style="flex:1;min-width:0;">
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
-          <div style="font-size:9px;color:#5b6577;">${escHtml(t.date)}</div>
+          <div style="font-size:9.5px;color:#5b6577;margin-top:1px;">${escHtml(t.date)}</div>
         </div>
-        <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${SPEND_CAT_COLOR[t.category]||'#8b96a8'}18;color:${SPEND_CAT_COLOR[t.category]||'#8b96a8'};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
-        <span style="color:${isPmt?'#34d399':'#eef2f8'};flex-shrink:0;">${isPmt?'-':''}$${t.amount.toFixed(2)}</span>
+        <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:${color}22;color:${color};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
+        <span style="flex-shrink:0;color:${isPmt?'#34d399':'#eef2f8'};">${isPmt?'−':''}$${t.amount.toFixed(2)}</span>
       </div>`;
     }).join('');
-    const label=limit>=ec.transactions.length?`TRANSACTIONS (${ec.transactions.length})`:`RECENT TRANSACTIONS (showing ${limit} of ${ec.transactions.length})`;
-    return `<div style="margin-top:12px;border-top:1px solid rgba(148,163,184,.14);padding-top:10px;">
-      ${catChips?`<div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">SPEND BY CATEGORY</div><div style="margin-bottom:10px;">${catChips}</div>`:''}
-      <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:4px;">${label}</div>
-      <div style="max-height:${limit>8?'400px':'200px'};overflow-y:auto;">${rows}</div>
+
+    return `<div style="margin-top:14px;">
+      ${spendHtml}
+      <div style="font-size:9.5px;color:#8b96a8;letter-spacing:.08em;margin:14px 0 6px;">TRANSACTIONS (${transactions.length})</div>
+      ${rows}
     </div>`;
   }
 
@@ -2324,6 +2356,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='view-card') el.onclick=()=>startViewCard(id);
       else if(act==='card-detail-back') el.onclick=()=>closeCardDetail();
       else if(act==='card-detail-edit') el.onclick=()=>startEditCard(id);
+      else if(act==='card-detail-tab') el.onclick=()=>{ cardUi.detailTab=el.dataset.tab; renderCardsTab(); };
       else if(act==='card-modal-cancel') el.onclick=()=>cancelCardModal();
       else if(act==='card-modal-save') el.onclick=()=>saveCard();
       else if(act==='card-modal-delete') el.onclick=()=>deleteCard();
@@ -2379,51 +2412,76 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function cardDetailHtml(c){
     const util = c.limit > 0 ? Math.min(100,(c.balance/c.limit)*100) : 0;
     const utilColor = util >= 80 ? '#f87171' : util >= 50 ? '#e8b565' : '#34d399';
-    return `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
-      <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#070b14;z-index:10;">
-        <button data-act="card-detail-back" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-          <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 5.5H1M5.5 1L1 5.5l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-        <div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;">
+    const tab = cardUi.detailTab || 'overview';
+    const stats = [
+      c.apr ? ['APR', `${c.apr}%`] : null,
+      c.minPayment ? ['MIN PAYMENT', `$${c.minPayment.toLocaleString()}`] : null,
+      c.dueDay ? ['DUE DAY', `${c.dueDay}`] : null,
+      c.annualFee ? ['ANNUAL FEE', `$${c.annualFee.toLocaleString()}`] : null,
+    ].filter(Boolean);
+    const hasInfo = !!(c.highlight || c.warning || (c.rewards&&c.rewards.length) || (c.perks&&c.perks.length));
+
+    const overviewHtml = `
+      <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
+        <div id="cardface" style="display:flex;align-items:center;gap:10px;">
           ${networkMark(c.network)}
-          <div style="min-width:0;">
-            <div class="syne" style="font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(c.name)}</div>
-            <div style="font-size:10px;color:#8b96a8;">${escHtml(c.owner)}${c.bank?' · '+escHtml(c.bank):''}</div>
+          <div style="min-width:0;flex:1;">
+            <div class="syne" id="cardface-name" style="font-size:14px;color:#fff;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(c.name)}</div>
+            <div style="font-size:10px;color:#8b96a8;margin-top:2px;">${escHtml(c.owner)}${c.bank?' · '+escHtml(c.bank):''}</div>
           </div>
         </div>
+        <div style="border-top:1px solid rgba(148,163,184,.12);margin:12px 0;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+          <div class="syne" style="font-size:26px;color:#eef2f8;">$${(c.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}${c.limit>0?`<span style="font-size:12px;color:#8b96a8;font-weight:400;margin-left:6px;">of $${c.limit.toLocaleString()}</span>`:''}</div>
+          ${stats.length?`<div style="display:flex;gap:18px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">${stats.map(([k,v])=>`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">${k}</div><div style="font-size:12px;color:#eef2f8;margin-top:3px;">${v}</div></div>`).join('')}</div>`:''}
+        </div>
+        ${c.limit>0?`
+          <div style="height:6px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;margin-top:12px;"><div style="height:100%;width:${util.toFixed(0)}%;background:${utilColor};"></div></div>
+          <div style="font-size:10px;color:#5b6577;margin-top:6px;">${util.toFixed(0)}% utilization</div>
+        `:''}
+      </div>
+      ${cardSpendAndTransactionsHtml(c)}
+    `;
+
+    const infoHtml = hasInfo ? `
+      ${(c.highlight||c.warning)?`
+        <div style="border:1px solid rgba(148,163,184,.16);border-radius:12px;padding:12px 14px;margin-bottom:16px;">
+          ${c.highlight?`<div style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;font-size:11.5px;line-height:1.5;color:#c8d0dd;${c.warning?'border-bottom:1px solid rgba(148,163,184,.10);':''}"><span style="width:15px;height:15px;border-radius:99px;background:#34d39922;color:#34d399;font-size:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">✓</span><span>${escHtml(c.highlight)}</span></div>`:''}
+          ${c.warning?`<div style="display:flex;gap:9px;align-items:flex-start;padding:8px 0;font-size:11.5px;line-height:1.5;color:#c8d0dd;"><span style="width:15px;height:15px;border-radius:99px;background:#f59e0b22;color:#f59e0b;font-size:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;">!</span><span>${escHtml(c.warning)}</span></div>`:''}
+        </div>
+      `:''}
+      ${((c.rewards&&c.rewards.length)||(c.perks&&c.perks.length))?`
+        <div style="margin-bottom:16px;">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">PERKS</div>
+          ${(c.rewards||[]).map(r=>`<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;font-size:12px;color:#dde3ec;border-bottom:1px solid rgba(148,163,184,.08);"><span style="font-size:10px;margin-top:2px;flex-shrink:0;width:12px;text-align:center;color:#e8b565;">★</span><span>${escHtml(r)}</span></div>`).join('')}
+          ${(c.perks||[]).map(p=>`<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;font-size:12px;color:#dde3ec;border-bottom:1px solid rgba(148,163,184,.08);"><span style="font-size:10px;margin-top:2px;flex-shrink:0;width:12px;text-align:center;color:#5b6577;">•</span><span>${escHtml(p)}</span></div>`).join('')}
+        </div>
+      `:''}
+    ` : `<div style="padding:32px 16px;text-align:center;color:#5b6577;font-size:12px;line-height:1.6;">No extra details for this card yet.<br>Add a highlight, warning, or perks from Edit.</div>`;
+
+    return `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
+      <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#070b14;z-index:10;">
+        <button data-act="card-detail-back" style="background:transparent;border:none;color:#8b96a8;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;display:flex;align-items:center;gap:1px;padding:4px 2px;flex-shrink:0;">
+          <span style="font-size:17px;line-height:1;margin-top:-1px;">‹</span>Cards
+        </button>
+        <div style="flex:1;"></div>
         <button data-act="card-detail-edit" data-card-id="${c.id}" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#e8b565;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;flex-shrink:0;">Edit</button>
       </div>
       <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
-        <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
-          <div class="syne" style="font-size:26px;color:#eef2f8;">$${(c.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}${c.limit>0?`<span style="font-size:12px;color:#8b96a8;font-weight:400;margin-left:6px;">of $${c.limit.toLocaleString()}</span>`:''}</div>
-          ${c.limit>0?`
-            <div style="height:6px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;margin-top:10px;"><div style="height:100%;width:${util.toFixed(0)}%;background:${utilColor};"></div></div>
-            <div style="font-size:10px;color:#5b6577;margin-top:6px;">${util.toFixed(0)}% utilization</div>
-          `:''}
-          <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;">
-            ${c.apr?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">APR</div><div style="font-size:12px;color:#eef2f8;">${c.apr}%</div></div>`:''}
-            ${c.minPayment?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">MIN PAYMENT</div><div style="font-size:12px;color:#eef2f8;">$${c.minPayment.toLocaleString()}</div></div>`:''}
-            ${c.dueDay?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">DUE DAY</div><div style="font-size:12px;color:#eef2f8;">${c.dueDay}</div></div>`:''}
-            ${c.annualFee?`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">ANNUAL FEE</div><div style="font-size:12px;color:#eef2f8;">$${c.annualFee.toLocaleString()}</div></div>`:''}
-          </div>
+        <div class="cards-subnav">
+          <button class="cst ${tab==='overview'?'on':''}" data-act="card-detail-tab" data-tab="overview">Overview</button>
+          <button class="cst ${tab==='info'?'on':''}" data-act="card-detail-tab" data-tab="info">Info</button>
         </div>
-        ${c.highlight?`<div style="padding:10px 12px;border:1px solid #34d39955;background:#34d3991a;border-radius:8px;font-size:11px;color:#34d399;margin-bottom:10px;line-height:1.5;">✓ ${escHtml(c.highlight)}</div>`:''}
-        ${c.warning?`<div style="padding:10px 12px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:11px;color:#f87171;margin-bottom:14px;line-height:1.5;">⚠ ${escHtml(c.warning)}</div>`:''}
-        ${(c.rewards&&c.rewards.length)?`
-          <div style="margin-bottom:14px;">
-            <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">REWARDS</div>
-            ${c.rewards.map(r=>`<div style="font-size:12px;color:#eef2f8;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);">• ${escHtml(r)}</div>`).join('')}
-          </div>
-        `:''}
-        ${(c.perks&&c.perks.length)?`
-          <div style="margin-bottom:14px;">
-            <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:6px;">PERKS</div>
-            ${c.perks.map(p=>`<div style="font-size:12px;color:#eef2f8;padding:5px 0;border-bottom:1px solid rgba(148,163,184,.08);">• ${escHtml(p)}</div>`).join('')}
-          </div>
-        `:''}
-        ${cardTransactionsHtml(c, 1000)}
+        ${tab==='overview' ? overviewHtml : `<div style="font-size:10.5px;color:#5b6577;margin:2px 0 14px;">${escHtml(c.name)}</div>${infoHtml}`}
       </div>
     </div>`;
+  }
+  function fitCardFace(){
+    const nameEl=document.getElementById('cardface-name');
+    const face=document.getElementById('cardface');
+    if(!nameEl||!face) return;
+    face.classList.remove('cardface-no-logo');
+    if(nameEl.scrollWidth>nameEl.clientWidth) face.classList.add('cardface-no-logo');
   }
 
   const CARDS_SUBNAV = [
@@ -2458,6 +2516,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     }
     root.innerHTML = pageHtml + csvImportReviewHtml() + moveTransactionsModalHtml();
     attachCardsEvents();
+    fitCardFace();
   }
 
   function renderCardsAll(){
