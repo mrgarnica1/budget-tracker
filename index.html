@@ -2171,9 +2171,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     document.querySelectorAll('[data-cards-tab]').forEach(el=>{
       el.addEventListener('click', ()=>setCardsSubTab(el.dataset.cardsTab));
     });
-    document.querySelectorAll('[data-owner-filter]').forEach(el=>{
-      el.addEventListener('click', ()=>{ cardUi.ownerFilter=el.dataset.ownerFilter; renderCardsTab(); });
-    });
+    const cardsOwnerSel = document.querySelector('[data-act="cards-owner-filter"]');
+    if (cardsOwnerSel) cardsOwnerSel.addEventListener('change', e=>{ cardUi.ownerFilter=e.target.value; renderCardsTab(); });
     const cardsSortSel = document.querySelector('[data-act="cards-sort"]');
     if (cardsSortSel) cardsSortSel.addEventListener('change', e=>{ cardUi.sortBy=e.target.value; renderCardsTab(); });
     const payoffExtraInput = document.getElementById('cards-payoff-extra-input');
@@ -2292,32 +2291,32 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);border-bottom:1px solid rgba(148,163,184,.14);">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">CC DEBT</div>
           <div class="syne" style="font-size:18px;margin-top:3px;color:#f87171;">$${ccDebt.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-          <div style="font-size:9.5px;color:#5b6577;margin-top:2px;">${cardsWithBalance} of ${allCards.length} cards carry a balance</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">${cardsWithBalance} of ${allCards.length} cards carry a balance</div>
         </div>
         <div style="padding:13px 15px;border-bottom:1px solid rgba(148,163,184,.14);">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL DEBT</div>
           <div class="syne" style="font-size:18px;margin-top:3px;color:#e8b565;">$${totalDebt.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-          <div style="font-size:9.5px;color:#5b6577;margin-top:2px;">incl. mortgage & loans</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">incl. mortgage & loans</div>
         </div>
         <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">ANNUAL FEES</div>
           <div class="syne" style="font-size:18px;margin-top:3px;color:#22d3ee;">$${totalAnnualFees.toLocaleString()}</div>
-          <div style="font-size:9.5px;color:#5b6577;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${annualFeeCards.length?escHtml(annualFeeCards.map(c=>c.name).join(', ')):'None'}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${annualFeeCards.length?escHtml(annualFeeCards.map(c=>c.name).join(', ')):'None'}</div>
         </div>
         <div style="padding:13px 15px;">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">LOWEST APR</div>
           <div class="syne" style="font-size:18px;margin-top:3px;color:#34d399;">${lowestApr?lowestApr.apr+'%':'—'}</div>
-          <div style="font-size:9.5px;color:#5b6577;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${lowestApr?escHtml(lowestApr.name):'—'}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${lowestApr?escHtml(lowestApr.name):'—'}</div>
         </div>
       </div>
     `;
 
     const ownerChips = allCards.length===0 ? '' : `
-      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
-        ${['All',...CARD_OWNERS].map(o=>`<button class="fchip ${cardUi.ownerFilter===o?'on':''}" data-owner-filter="${escAttr(o)}">${o}</button>`).join('')}
-      </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
-        <select data-act="cards-sort" class="ef" style="width:auto;padding:6px 10px;font-size:10.5px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:14px;">
+        <select data-act="cards-owner-filter" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
+          ${['All',...CARD_OWNERS].map(o=>`<option value="${escAttr(o)}" ${cardUi.ownerFilter===o?'selected':''}>${o}</option>`).join('')}
+        </select>
+        <select data-act="cards-sort" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
           ${CARD_SORTS.map(([key,label])=>`<option value="${key}" ${cardUi.sortBy===key?'selected':''}>${label}</option>`).join('')}
         </select>
       </div>
@@ -2779,7 +2778,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         <div class="syne" style="font-size:24px;margin-top:4px;color:#34d399;">$${totalBalance.toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">across ${accounts.length} account${accounts.length===1?'':'s'}</span></div>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
-        <select data-act="invest-sort" class="ef" style="width:auto;padding:6px 10px;font-size:10.5px;">
+        <select data-act="invest-sort" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
           ${INVEST_SORTS.map(([key,label])=>`<option value="${key}" ${investUi.sortBy===key?'selected':''}>${label}</option>`).join('')}
         </select>
       </div>
@@ -2938,7 +2937,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         <div class="syne" style="font-size:24px;margin-top:4px;color:#f87171;">$${totalDebt.toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">across ${loans.filter(l=>!l.paid).length} loan${loans.filter(l=>!l.paid).length===1?'':'s'}</span></div>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
-        <select data-act="loans-sort" class="ef" style="width:auto;padding:6px 10px;font-size:10.5px;">
+        <select data-act="loans-sort" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
           ${LOAN_SORTS.map(([key,label])=>`<option value="${key}" ${loanUi.sortBy===key?'selected':''}>${label}</option>`).join('')}
         </select>
       </div>
@@ -3145,7 +3144,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     loadApp();
     migrateCardFields();
     snapshotDailyHistory();
-    initWebauthnAvailability().then(showPinScreen);
+    // Face ID must fire the instant the PIN screen mounts — any async wait here (even a
+    // fast local platform check) burns into the browser's transient-user-activation window
+    // from opening the app, and some browsers refuse a non-gesture-backed WebAuthn call
+    // once that window closes. Availability itself only gates the "Enable Face ID" opt-in
+    // link, which is safe to resolve in the background — renderPin() already re-reads it
+    // on every keystroke, so the link appears as soon as it's ready without blocking unlock.
+    showPinScreen();
+    initWebauthnAvailability();
   }
   initCloud();
 
