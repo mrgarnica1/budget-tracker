@@ -453,6 +453,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           app.cards = parsed.cards || app.cards || [];
           app.investments = parsed.investments || app.investments || [];
           app.loans = parsed.loans || app.loans || [];
+          migrateCardFields();
           // Current check may have been deleted remotely
           if (app.currentCheckId && !app.checks.find(c => c.id === app.currentCheckId)) app.currentCheckId = null;
           localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, loans: app.loans, updatedAt: d.updatedAt }));
@@ -2205,7 +2206,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const listHtml = allCards.length === 0 ? `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No cards yet — tap "+ Add Card" to start tracking balances.</div>
-      ${(app.loans.length===0&&app.investments.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans + 7 investments)</button>`:''}
+      <button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA</button>
     ` : (cards.length===0 ? `
       <div style="padding:30px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No cards for "${escHtml(cardUi.ownerFilter)}".</div>
     ` : cards.map(c=>{
@@ -2639,7 +2640,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const listHtml = accounts.length === 0 ? `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No accounts yet — tap "+ Add Account" to start tracking your portfolio.</div>
-      ${(app.cards.length===0&&app.loans.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans + 7 investments)</button>`:''}
+      <button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA</button>
     ` : `
       <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
         <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL BALANCE</div>
@@ -2777,7 +2778,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const emptyStateHtml = `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No loans yet — tap "+ Add Loan" to start tracking mortgages, personal loans, and leases.</div>
-      ${(app.cards.length===0&&app.investments.length===0)?`<button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA (16 cards + 9 loans + 7 investments)</button>`:''}
+      <button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA</button>
     `;
     const listHtml = loans.length === 0 ? emptyStateHtml : `
 
@@ -2822,11 +2823,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   /* ── One-time starter data — real account terms (APR, rewards, perks) are public/static
      card-agreement facts with no live source, so they're seeded once from a manually-curated
      reference; balances are the real current figures supplied directly, not carried over from
-     any stale reference. Only offered while both Cards and Loans are empty. ── */
-  function seedMyAccounts(){
-    if(app.cards.length || app.loans.length || app.investments.length) return;
-    const today = toDS(new Date());
-    const SEED_CARDS = [
+     any stale reference. Each module (Cards/Loans/Investments) tops up independently — seeding
+     investments later shouldn't require Cards/Loans to still be empty just because they were
+     already seeded in an earlier session. ── */
+  const SEED_CARDS = [
       { name:'Apple Card', bank:'Apple', network:'Mastercard', owner:'You', balance:1703, apr:21.24, annualFee:0,
         rewards:['3% Apple & select partners (Nike, Exxon, Walgreens)','2% via Apple Pay','1% physical card'],
         perks:['Daily Cash — rewards credited same day','Auto-deposits to Apple high-yield savings','Apple Card Monthly Installments (interest-free)','Zero fees: no annual, late, over-limit, foreign TX','Transitioning Goldman Sachs → Chase by 2028'],
@@ -2892,41 +2892,69 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         perks:["Cash back redeemable at Sam's Club",'No foreign transaction fee'],
         highlight:"5% at Sam's Club fuel", warning:"Cash back only redeemable at Sam's Club annually" },
     ];
-    const SEED_LOANS = [
-      { name:'Primary Mortgage', balance:468509, original:537000, note:'Primary home — Anaheim, CA', paid:false },
-      { name:'SoFi Personal Loan', balance:14612, original:21000, note:'Personal loan', paid:false },
-      { name:'2022 Tesla Model Y', balance:15598, original:null, note:'Auto loan', paid:false },
-      { name:'Tesla Model 3', balance:3100, original:null, note:'Auto lease', paid:false },
-      { name:'02 Personal Loan', balance:1422, original:null, note:'Personal loan', paid:false },
-      { name:'Overdraft Protection', balance:40, original:null, note:'Overdraft protection line', paid:false },
-      { name:'Klarna', balance:49.69, original:null, note:'Buy now pay later', paid:false },
-      { name:'Affirm', balance:0, original:null, note:'Buy now pay later', paid:true },
-      { name:'SchoolsFirst Loan', balance:0, original:null, note:'Fully paid off', paid:true },
-    ];
-    const SEED_INVESTMENTS = [
-      { name:'Acorns Investing Account', institution:'Acorns', accountType:'Brokerage', balance:266 },
-      { name:'Maria R Gonzalez - Brokerage', institution:'Vanguard', accountType:'Brokerage', balance:17702 },
-      { name:'Robinhood Individual', institution:'Robinhood', accountType:'Brokerage', balance:6 },
-      { name:'Robinhood Roth IRA', institution:'Robinhood', accountType:'Roth IRA', balance:772 },
-      { name:'Robinhood Traditional IRA', institution:'Robinhood', accountType:'Traditional IRA', balance:26538 },
-      { name:'Spokeo Inc 401(k) Plan', institution:'Paychex', accountType:'401k', balance:99964.75 },
-      { name:'Ensign 401(k)', institution:'Fidelity', accountType:'401k', balance:32496.01 },
-    ];
-    SEED_CARDS.forEach(sc=>{
-      const c = Object.assign(makeCard(), sc, { createdAt:today, history:[{date:today,balance:sc.balance}] });
-      app.cards.push(c);
-    });
-    SEED_LOANS.forEach(sl=>{
-      const l = Object.assign(makeLoan(), sl, { createdAt:today, history:[{date:today,balance:sl.balance}] });
-      app.loans.push(l);
-    });
-    SEED_INVESTMENTS.forEach(si=>{
-      const a = Object.assign(makeInvestment(), si, { createdAt:today, history:[{date:today,balance:si.balance}] });
-      app.investments.push(a);
-    });
+  const SEED_LOANS = [
+    { name:'Primary Mortgage', balance:468509, original:537000, note:'Primary home — Anaheim, CA', paid:false },
+    { name:'SoFi Personal Loan', balance:14612, original:21000, note:'Personal loan', paid:false },
+    { name:'2022 Tesla Model Y', balance:15598, original:null, note:'Auto loan', paid:false },
+    { name:'Tesla Model 3', balance:3100, original:null, note:'Auto lease', paid:false },
+    { name:'02 Personal Loan', balance:1422, original:null, note:'Personal loan', paid:false },
+    { name:'Overdraft Protection', balance:40, original:null, note:'Overdraft protection line', paid:false },
+    { name:'Klarna', balance:49.69, original:null, note:'Buy now pay later', paid:false },
+    { name:'Affirm', balance:0, original:null, note:'Buy now pay later', paid:true },
+    { name:'SchoolsFirst Loan', balance:0, original:null, note:'Fully paid off', paid:true },
+  ];
+  const SEED_INVESTMENTS = [
+    { name:'Acorns Investing Account', institution:'Acorns', accountType:'Brokerage', balance:266 },
+    { name:'Maria R Gonzalez - Brokerage', institution:'Vanguard', accountType:'Brokerage', balance:17702 },
+    { name:'Robinhood Individual', institution:'Robinhood', accountType:'Brokerage', balance:6 },
+    { name:'Robinhood Roth IRA', institution:'Robinhood', accountType:'Roth IRA', balance:772 },
+    { name:'Robinhood Traditional IRA', institution:'Robinhood', accountType:'Traditional IRA', balance:26538 },
+    { name:'Spokeo Inc 401(k) Plan', institution:'Paychex', accountType:'401k', balance:99964.75 },
+    { name:'Ensign 401(k)', institution:'Fidelity', accountType:'401k', balance:32496.01 },
+  ];
+  function seedMyAccounts(){
+    const today = toDS(new Date());
+    const loaded = [];
+    if(!app.cards.length){
+      SEED_CARDS.forEach(sc=>{
+        const c = Object.assign(makeCard(), sc, { createdAt:today, history:[{date:today,balance:sc.balance}] });
+        app.cards.push(c);
+      });
+      loaded.push(`${SEED_CARDS.length} cards`);
+    }
+    if(!app.loans.length){
+      SEED_LOANS.forEach(sl=>{
+        const l = Object.assign(makeLoan(), sl, { createdAt:today, history:[{date:today,balance:sl.balance}] });
+        app.loans.push(l);
+      });
+      loaded.push(`${SEED_LOANS.length} loans`);
+    }
+    if(!app.investments.length){
+      SEED_INVESTMENTS.forEach(si=>{
+        const a = Object.assign(makeInvestment(), si, { createdAt:today, history:[{date:today,balance:si.balance}] });
+        app.investments.push(a);
+      });
+      loaded.push(`${SEED_INVESTMENTS.length} investments`);
+    }
+    if(!loaded.length) return;
     saveApp();
     renderApp();
-    showToast('✓ Loaded 16 cards + 9 loans + 7 investments','#34d399');
+    showToast('✓ Loaded '+loaded.join(' + '),'#34d399');
+  }
+  /* Backfill network/owner on cards seeded before those fields existed (schema additions only
+     apply to newly-created objects — anything already sitting in localStorage/Firestore from
+     before keeps whatever shape it was saved with until migrated). Matches by name against the
+     canonical seed data so real cards get their real network/owner, not a generic default. */
+  function migrateCardFields(){
+    if(!app.cards.length) return;
+    let changed=false;
+    app.cards.forEach(c=>{
+      if(c.network && c.owner) return;
+      const ref = SEED_CARDS.find(sc=>sc.name===c.name);
+      if(!c.network){ c.network = ref ? ref.network : 'Visa'; changed=true; }
+      if(!c.owner){ c.owner = ref ? ref.owner : 'You'; changed=true; }
+    });
+    if(changed) saveApp();
   }
 
   /* ── Boot ──────────────────────────────────────────────────── */
@@ -2954,10 +2982,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   if(sessionStorage.getItem(PIN_SESSION_KEY)==='1'){
     loadApp();
+    migrateCardFields();
     snapshotDailyHistory();
     renderApp();
   } else {
     loadApp();
+    migrateCardFields();
     snapshotDailyHistory();
     showPinScreen();
   }
