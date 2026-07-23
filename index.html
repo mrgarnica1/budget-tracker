@@ -2287,7 +2287,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const cardsWithBalance = allCards.filter(c=>c.balance>0).length;
 
     const statGrid = allCards.length===0 ? '' : `
-      <div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;overflow:hidden;">
         <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);border-bottom:1px solid rgba(148,163,184,.14);">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">CC DEBT</div>
           <div class="syne" style="font-size:18px;margin-top:3px;color:#f87171;">$${ccDebt.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
