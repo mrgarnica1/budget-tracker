@@ -74,7 +74,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .cards-body.cards-slide-next, .cards-body.cards-slide-prev { animation: none; }
 }
 #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; display: flex; background: #0a101d; border-top: 1px solid rgba(148,163,184,.12); padding-bottom: env(safe-area-inset-bottom, 0); }
-.bnav-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 4px 10px; background: transparent; border: none; cursor: pointer; font-family: inherit; color: #5b6577; }
+.bnav-tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 13px 4px; min-height: 58px; background: transparent; border: none; cursor: pointer; font-family: inherit; color: #5b6577; }
 .bnav-tab svg { opacity: .7; transition: opacity .15s; }
 .bnav-tab span { font-size: 9.5px; font-weight: 600; letter-spacing: .02em; }
 .bnav-tab.active { color: #22d3ee; }
@@ -860,7 +860,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     }).join('');
 
     root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
         <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <div>
@@ -1257,7 +1257,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const root=document.getElementById('root');
 
     root.innerHTML=`
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;overflow-x:hidden;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;overflow-x:hidden;padding-bottom:96px;">
         <div id="main-header" style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#070b14;z-index:10;gap:8px;">
           <div style="display:flex;align-items:center;gap:10px;">
             <button data-act="go-home" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -1549,6 +1549,24 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   /* ── Overview tab — real data only. Uses the same checkSummary() the home list and detail
      view already use, so these numbers can never drift from what Paychecks itself shows. ── */
+  /* ── Overview tile shell — colored eyebrow label + chevron + big number, matching the
+     concept shell's .otile treatment. Color lives on the eyebrow (module identity), not the
+     number, so the empty state can share the exact same shell with a muted placeholder
+     instead of a bare text block. ── */
+  function overviewTileHtml({ jump, label, accent, count, num, sub }){
+    const isEmpty = count === 0;
+    return `
+      <div style="margin-top:10px;padding:13px 15px;border:1px solid rgba(148,163,184,.14);border-radius:10px;cursor:pointer;" data-act="ov-go-${jump}">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:${accent};">${label}</div>
+          <span style="color:#3a4354;font-size:13px;">→</span>
+        </div>
+        ${isEmpty
+          ? `<div class="syne" style="font-size:21px;margin-top:4px;color:#3a4354;">—</div><div style="font-size:11px;color:#5b6577;margin-top:2px;">Not set up yet — tap to get started</div>`
+          : `<div class="syne" style="font-size:21px;margin-top:4px;color:#eef2f8;">${num}</div><div style="font-size:11px;color:#8b96a8;margin-top:2px;">${sub}</div>`}
+      </div>
+    `;
+  }
   function renderOverviewTab(){
     const root = document.getElementById('root');
     const chk = app.checks[0]; // newest check — addCheck() unshifts, so index 0 is current
@@ -1563,7 +1581,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const legend = TYPES.filter(t=>s.byType[t]).map(t=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;"><span style="width:6px;height:6px;border-radius:2px;background:${TC[t]};"></span>${t} $${s.byType[t].toFixed(0)}</span>`).join('');
       return `
         <div class="check-card" style="cursor:pointer;" data-act="ov-open-check">
-          <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:#22d3ee;">This Paycheck</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:#22d3ee;">This Paycheck</div>
+            <span style="color:#3a4354;font-size:13px;">→</span>
+          </div>
           <div class="syne" style="font-size:26px;margin-top:6px;color:${over?'#f87171':'#34d399'};">${over?'-':''}$${Math.abs(s.remaining).toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">of $${s.totalIncome.toLocaleString()}</span></div>
           <div style="font-size:11px;color:#8b96a8;margin-top:2px;">Check #${chk.checkN} · ${fmtD(chk.sd)} → ${fmtD(chk.ed)}</div>
           <div style="margin-top:14px;">
@@ -1580,31 +1601,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     })();
 
     root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
         <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
           <div class="syne" style="font-size:19px;color:#fff;">OVER<span class="grad-text">VIEW</span></div>
           <div style="font-size:10px;color:#8b96a8;letter-spacing:.08em;">${new Date().toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}</div>
         </div>
         <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
           ${payCard}
-          <div style="margin-top:12px;padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;cursor:pointer;" data-act="ov-go-cards">
-            <div style="font-size:13px;color:#fff;">Credit Cards</div>
-            ${app.cards.length === 0
-              ? `<div style="font-size:11px;color:#5b6577;margin-top:2px;">Not set up yet — tap to get started</div>`
-              : `<div style="font-size:15px;color:#e8b565;margin-top:2px;" class="syne">$${app.cards.reduce((s,c)=>s+(Number(c.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:10px;color:#5b6577;font-weight:400;margin-left:6px;">across ${app.cards.length} card${app.cards.length===1?'':'s'}</span></div>`}
-          </div>
-          <div style="margin-top:10px;padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;cursor:pointer;" data-act="ov-go-invest">
-            <div style="font-size:13px;color:#fff;">Investments</div>
-            ${app.investments.length === 0
-              ? `<div style="font-size:11px;color:#5b6577;margin-top:2px;">Not set up yet — tap to get started</div>`
-              : `<div style="font-size:15px;color:#34d399;margin-top:2px;" class="syne">$${app.investments.reduce((s,a)=>s+(Number(a.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:10px;color:#5b6577;font-weight:400;margin-left:6px;">across ${app.investments.length} account${app.investments.length===1?'':'s'}</span></div>`}
-          </div>
-          <div style="margin-top:10px;padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;cursor:pointer;" data-act="ov-go-loans">
-            <div style="font-size:13px;color:#fff;">Loans</div>
-            ${app.loans.length === 0
-              ? `<div style="font-size:11px;color:#5b6577;margin-top:2px;">Not set up yet — tap to get started</div>`
-              : `<div style="font-size:15px;color:#f87171;margin-top:2px;" class="syne">$${app.loans.filter(l=>!l.paid).reduce((s,l)=>s+(Number(l.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:10px;color:#5b6577;font-weight:400;margin-left:6px;">across ${app.loans.filter(l=>!l.paid).length} loan${app.loans.filter(l=>!l.paid).length===1?'':'s'}</span></div>`}
-          </div>
+          ${overviewTileHtml({ jump:'cards', label:'Credit Cards', accent:'#e8b565', count:app.cards.length,
+              num:'$'+app.cards.reduce((s,c)=>s+(Number(c.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0}),
+              sub:`across ${app.cards.length} card${app.cards.length===1?'':'s'}` })}
+          ${overviewTileHtml({ jump:'invest', label:'Investments', accent:'#34d399', count:app.investments.length,
+              num:'$'+app.investments.reduce((s,a)=>s+(Number(a.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0}),
+              sub:`across ${app.investments.length} account${app.investments.length===1?'':'s'}` })}
+          ${overviewTileHtml({ jump:'loans', label:'Loans', accent:'#f87171', count:app.loans.length,
+              num:'$'+app.loans.filter(l=>!l.paid).reduce((s,l)=>s+(Number(l.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0}),
+              sub:`across ${app.loans.filter(l=>!l.paid).length} loan${app.loans.filter(l=>!l.paid).length===1?'':'s'}` })}
         </div>
       </div>
     `;
@@ -1625,7 +1637,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function renderEmptyModuleTab(title, blurb){
     const root = document.getElementById('root');
     root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
         <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
           <div class="syne" style="font-size:19px;color:#fff;">${title}</div>
         </div>
@@ -2063,7 +2075,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function cardDetailHtml(c){
     const util = c.limit > 0 ? Math.min(100,(c.balance/c.limit)*100) : 0;
     const utilColor = util >= 80 ? '#f87171' : util >= 50 ? '#e8b565' : '#34d399';
-    return `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+    return `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
       <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#070b14;z-index:10;">
         <button data-act="card-detail-back" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
           <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 5.5H1M5.5 1L1 5.5l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -2133,7 +2145,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const animClass = cardsSlideDir === 'next' ? 'cards-slide-next' : cardsSlideDir === 'prev' ? 'cards-slide-prev' : '';
 
     root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
         <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
           <div class="syne" style="font-size:19px;color:#fff;">CREDIT <span class="grad-text">CARDS</span></div>
         </div>
@@ -2648,7 +2660,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     `;
 
     root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
         <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
           <div class="syne" style="font-size:19px;color:#fff;">IN<span class="grad-text">VEST</span></div>
         </div>
@@ -2791,7 +2803,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     `;
 
     root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:80px;">
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:96px;">
         <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
           <div class="syne" style="font-size:19px;color:#fff;">LO<span class="grad-text">ANS</span></div>
         </div>
