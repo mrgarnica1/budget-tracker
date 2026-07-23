@@ -1902,33 +1902,46 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     g.balanceOverride=Math.max(0,Math.round(((Number(card.balance)||0)+net)*100)/100);
   }
   let cardsImportUi = null;
+  let csvImportTargetCardId = null; // set by startImportSingleCard(); consumed once by the next handleCsvFile() call
+  function buildImportGroup(key, transactions, initialAction){
+    const accountType=transactions[0].accountType||'';
+    const totalPurchases=Math.round(transactions.filter(t=>t.category!=='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
+    const totalPayments=Math.round(transactions.filter(t=>t.category==='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
+    const dates=transactions.map(t=>new Date(t.date).getTime()).filter(t=>!isNaN(t));
+    const dateSpanDays=dates.length>=2?Math.round((Math.max(...dates)-Math.min(...dates))/86400000):0;
+    const g={ key, accountType, totalPurchases, totalPayments, dateSpanDays, transactions, action:initialAction, newCount:0, balanceOverride:0 };
+    recomputeGroupSuggestion(g);
+    return g;
+  }
   function handleCsvFile(file){
     if(!file.name.toLowerCase().endsWith('.csv')){ showToast('✗ Please choose a .csv file','#f87171'); return; }
+    const targetCardId=csvImportTargetCardId; csvImportTargetCardId=null;
     const reader=new FileReader();
     reader.onerror=()=>showToast('✗ Could not read file','#f87171');
     reader.onload=e=>{
       const parsed=csvToObjects(e.target.result).map(normalizeTxRow)
         .filter(t=>t.name&&t.amount>0)
-        .map(t=>({ ...t, category: isPaymentTx(t.name) ? 'Payment' : ((t.category&&t.category.length>1)?t.category:categorizeTx(t.name)) }));
+        .map(t=>({ ...t, category: isPaymentTx(t.name) ? 'Payment' : ((t.category&&t.category.length>1)?t.category:categorizeTx(t.name)) }))
+        .map(t=>({ ...t, id:txId(t) }));
       if(!parsed.length){ showToast('✗ No transactions found — check Date/Name/Amount columns','#f87171'); return; }
-      const groupsMap=new Map();
-      parsed.forEach(t=>{
-        const key=(t.account||'').trim()||'Unassigned account';
-        if(!groupsMap.has(key)) groupsMap.set(key, []);
-        groupsMap.get(key).push({ ...t, id:txId(t) });
-      });
-      const groups=Array.from(groupsMap.entries()).map(([key,transactions])=>{
-        const accountType=transactions[0].accountType||'';
-        const totalPurchases=Math.round(transactions.filter(t=>t.category!=='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
-        const totalPayments=Math.round(transactions.filter(t=>t.category==='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
-        const dates=transactions.map(t=>new Date(t.date).getTime()).filter(t=>!isNaN(t));
-        const dateSpanDays=dates.length>=2?Math.round((Math.max(...dates)-Math.min(...dates))/86400000):0;
-        const matched=matchCardForGroup(key);
-        const action=matched || (looksLikeCreditCardType(accountType) ? 'create' : 'skip');
-        const g={ key, accountType, totalPurchases, totalPayments, dateSpanDays, transactions, action, newCount:0, balanceOverride:0 };
-        recomputeGroupSuggestion(g);
-        return g;
-      });
+      let groups;
+      if(targetCardId){
+        const card=app.cards.find(c=>c.id===targetCardId);
+        if(!card){ showToast('✗ Card not found','#f87171'); return; }
+        groups=[buildImportGroup(card.name, parsed, card.id)];
+      } else {
+        const groupsMap=new Map();
+        parsed.forEach(t=>{
+          const key=(t.account||'').trim()||'Unassigned account';
+          if(!groupsMap.has(key)) groupsMap.set(key, []);
+          groupsMap.get(key).push(t);
+        });
+        groups=Array.from(groupsMap.entries()).map(([key,transactions])=>{
+          const matched=matchCardForGroup(key);
+          const action=matched || (looksLikeCreditCardType(transactions[0].accountType||'') ? 'create' : 'skip');
+          return buildImportGroup(key, transactions, action);
+        });
+      }
       cardUi.editingCard=null; cardUi.confirmingDeleteCard=false;
       cardsImportUi={ filename:file.name, groups, stepIndex:0 };
       renderCardsTab();
@@ -2084,7 +2097,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     </div>`;
   }
 
-  let cardUi = { editingCard:null, confirmingDeleteCard:false, viewingCardId:null, confirmingClearAll:false, subTab:'all', ownerFilter:'All', sortBy:'balance-desc' };
+  let cardUi = { editingCard:null, confirmingDeleteCard:false, viewingCardId:null, confirmingClearAll:false, subTab:'all', ownerFilter:'All', sortBy:'balance-desc', movingCardId:null, moveDestId:null, moveBalanceOverride:null };
   const CARD_SORTS = [
     ['balance-desc','Balance (high to low)'], ['balance-asc','Balance (low to high)'],
     ['apr-desc','APR (high to low)'], ['apr-asc','APR (low to high)'], ['name-asc','Name (A–Z)'],
@@ -2144,6 +2157,49 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(cardUi.viewingCardId===ec.id) cardUi.viewingCardId=null;
     saveApp(); renderCardsTab();
   }
+  function startImportSingleCard(cardId){
+    csvImportTargetCardId=cardId;
+    ensureCsvFileInput();
+    document.getElementById('csv-file-input').click();
+  }
+  function startMoveTransactions(cardId){
+    const c=app.cards.find(c=>c.id===cardId);
+    if(!c||!c.transactions||!c.transactions.length) return;
+    cardUi.movingCardId=cardId; cardUi.moveDestId=null; cardUi.moveBalanceOverride=null;
+    renderCardsTab();
+  }
+  function cancelMoveTransactions(){ cardUi.movingCardId=null; cardUi.moveDestId=null; cardUi.moveBalanceOverride=null; renderCardsTab(); }
+  function computeMovePreview(){
+    const src=app.cards.find(c=>c.id===cardUi.movingCardId);
+    if(!src) return null;
+    const destOptions=app.cards.filter(c=>c.id!==src.id);
+    if(!destOptions.length) return null;
+    const destId=cardUi.moveDestId&&destOptions.some(c=>c.id===cardUi.moveDestId)?cardUi.moveDestId:destOptions[0].id;
+    const dest=destOptions.find(c=>c.id===destId);
+    const existingIds=new Set((dest.transactions||[]).map(txId));
+    const moving=(src.transactions||[]).filter(t=>!existingIds.has(txId(t)));
+    const net=moving.reduce((s,t)=>s+txNetAmount(t),0);
+    const destSuggested=Math.max(0,Math.round(((Number(dest.balance)||0)+net)*100)/100);
+    const destNewBalance=cardUi.moveBalanceOverride!=null?cardUi.moveBalanceOverride:destSuggested;
+    const srcNewBalance=Math.max(0,Math.round(((Number(src.balance)||0)-net)*100)/100);
+    return { src, dest, destOptions, moving, already:src.transactions.length-moving.length, destNewBalance, srcNewBalance };
+  }
+  function confirmMoveTransactions(){
+    const p=computeMovePreview();
+    if(!p) return;
+    const { src, dest, moving, destNewBalance, srcNewBalance }=p;
+    dest.transactions=[...moving, ...(dest.transactions||[])];
+    dest.balance=Math.max(0,Number(destNewBalance)||0);
+    pushCardHistory(dest);
+    src.transactions=[];
+    src.balance=Math.max(0,Number(srcNewBalance)||0);
+    pushCardHistory(src);
+    const movedCount=moving.length, destName=dest.name;
+    cardUi.movingCardId=null; cardUi.moveDestId=null; cardUi.moveBalanceOverride=null;
+    cardUi.editingCard=null; cardUi.confirmingDeleteCard=false;
+    saveApp(); renderCardsTab();
+    showToast(`✓ Moved ${movedCount} transaction${movedCount===1?'':'s'} to ${destName}`,'#34d399');
+  }
 
   function cardTransactionsHtml(ec, limit){
     if(!ec.transactions||!ec.transactions.length) return '';
@@ -2173,16 +2229,23 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     </div>`;
   }
 
-  function cardModalHtml(){
+  function cardEditHtml(){
     const ec=cardUi.editingCard;
     if(!ec) return '';
     const isNew=!app.cards.find(c=>c.id===ec.id);
-    return `<div data-act="card-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
-      <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">${isNew?'+ NEW CARD':'EDIT CARD'}</div>
-          <div style="display:flex;align-items:center;gap:8px;"><div style="width:8px;height:8px;border-radius:99px;background:#c9853e;"></div><button data-act="card-modal-cancel" style="background:transparent;border:none;color:#5b6577;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button></div>
+    const txCount=(ec.transactions||[]).length;
+    const canMove=!isNew && txCount>0 && app.cards.some(c=>c.id!==ec.id);
+    return `<div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
+      <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;background:#070b14;z-index:10;">
+        <button data-act="card-modal-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg width="13" height="11" viewBox="0 0 13 11" fill="none"><path d="M12 5.5H1M5.5 1L1 5.5l4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div style="flex:1;min-width:0;">
+          <div class="syne" style="font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${isNew?'New Card':escHtml(ec.name||'Edit Card')}</div>
         </div>
+        <button data-act="card-modal-save" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:6px 16px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;flex-shrink:0;">${isNew?'Add Card':'Save'}</button>
+      </div>
+      <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
         ${field('NAME',`<input type="text" data-act="cf-name" data-focus-key="cf-name" value="${escAttr(ec.name||'')}" placeholder="e.g. Chase Sapphire" class="ef" />`)}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           ${field('BANK',`<input type="text" data-act="cf-bank" data-focus-key="cf-bank" value="${escAttr(ec.bank||'')}" placeholder="e.g. Chase" class="ef" />`)}
@@ -2199,13 +2262,53 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         ${field('WARNING',`<input type="text" data-act="cf-warning" data-focus-key="cf-warning" value="${escAttr(ec.warning||'')}" placeholder="e.g. High APR — pay in full" class="ef" />`)}
         ${field('REWARDS (one per line)',`<textarea data-act="cf-rewards" data-focus-key="cf-rewards" rows="3" placeholder="e.g. 5% rotating categories&#10;1% everything else" class="ef">${escHtml((ec.rewards||[]).join('\n'))}</textarea>`)}
         ${field('PERKS (one per line)',`<textarea data-act="cf-perks" data-focus-key="cf-perks" rows="3" placeholder="e.g. No annual fee&#10;Free FICO score" class="ef">${escHtml((ec.perks||[]).join('\n'))}</textarea>`)}
-        ${cardTransactionsHtml(ec)}
-        ${cardUi.confirmingDeleteCard?`<div style="margin-top:10px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the card. Tap <b>DELETE</b> again to confirm.</div>`:''}
+        ${!isNew?`<div style="margin-top:6px;padding-top:14px;border-top:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:8px;">TRANSACTIONS${txCount?` · ${txCount} on file`:''}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button data-act="card-import-single" data-card-id="${ec.id}" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 12px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Import CSV to This Card</button>
+            ${canMove?`<button data-act="card-move-transactions" data-card-id="${ec.id}" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 12px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Move to Another Card →</button>`:''}
+          </div>
+        </div>`:''}
+        ${cardUi.confirmingDeleteCard?`<div style="margin-top:14px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the card. Tap <b>DELETE</b> again to confirm.</div>`:''}
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;align-items:center;">
           ${!isNew?`<button data-act="card-modal-delete" style="background:${cardUi.confirmingDeleteCard?'#f87171':'transparent'};border:1px solid ${cardUi.confirmingDeleteCard?'#f87171':'#f8717155'};color:${cardUi.confirmingDeleteCard?'#070b14':'#f87171'};padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:${cardUi.confirmingDeleteCard?'600':'400'};">${cardUi.confirmingDeleteCard?'CONFIRM DELETE':'Delete'}</button>`:''}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function moveTransactionsModalHtml(){
+    if(!cardUi.movingCardId) return '';
+    const p=computeMovePreview();
+    if(!p) return '';
+    const { src, dest, destOptions, moving, already, destNewBalance, srcNewBalance }=p;
+    return `<div data-act="move-tx-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+      <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+          <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">MOVE TRANSACTIONS</div>
+          <button data-act="move-tx-cancel" style="background:transparent;border:none;color:#5b6577;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button>
+        </div>
+        <div style="font-size:10px;color:#8b96a8;margin-bottom:12px;">Move all ${src.transactions.length} transaction${src.transactions.length===1?'':'s'} from <b style="color:#eef2f8;">${escHtml(src.name)}</b> to another card.</div>
+        ${field('MOVE TO', `<select data-act="move-tx-dest" class="ef" style="width:100%;">${destOptions.map(c=>`<option value="${c.id}" ${c.id===dest.id?'selected':''}>${escHtml(c.name)}</option>`).join('')}</select>`)}
+        <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin:10px 0;">
+          <div style="text-align:center;">
+            <div style="font-size:9px;color:#5b6577;letter-spacing:.08em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;">${escHtml(src.name)}</div>
+            <div style="font-size:14px;color:#5b6577;text-decoration:line-through;margin-top:3px;">$${(src.balance||0).toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            <div style="font-size:13px;color:#fff;font-weight:600;">$${srcNewBalance.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+          </div>
+          <div style="font-size:16px;color:#5b6577;">→</div>
+          <div style="text-align:center;">
+            <div style="font-size:9px;color:#5b6577;letter-spacing:.08em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px;">${escHtml(dest.name)}</div>
+            <div style="font-size:14px;color:#5b6577;text-decoration:line-through;margin-top:3px;">$${(dest.balance||0).toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            <div style="font-size:13px;color:#fff;font-weight:600;">$${destNewBalance.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+          </div>
+        </div>
+        ${field(`${dest.name.toUpperCase()} NEW BALANCE (suggested — editable)`, `<input type="number" step="0.01" data-act="move-tx-balance" value="${destNewBalance}" class="ef" />`)}
+        <div style="font-size:9px;color:#8b96a8;margin-top:2px;">${moving.length} of ${src.transactions.length} will move${already>0?` · ${already} already on ${escHtml(dest.name)} (skipped)`:''}. ${escHtml(src.name)}'s balance adjusts to remove what's moving.</div>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button data-act="move-tx-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Cancel</button>
           <div style="flex:1;"></div>
-          <button data-act="card-modal-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Cancel</button>
-          <button data-act="card-modal-save" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:6px 16px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">${isNew?'Add Card':'Save'}</button>
+          <button data-act="move-tx-confirm" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:6px 16px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">Move Transactions</button>
         </div>
       </div>
     </div>`;
@@ -2221,10 +2324,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='view-card') el.onclick=()=>startViewCard(id);
       else if(act==='card-detail-back') el.onclick=()=>closeCardDetail();
       else if(act==='card-detail-edit') el.onclick=()=>startEditCard(id);
-      else if(act==='card-modal-bg') el.onclick=e=>{ if(e.target===el) cancelCardModal(); };
       else if(act==='card-modal-cancel') el.onclick=()=>cancelCardModal();
       else if(act==='card-modal-save') el.onclick=()=>saveCard();
       else if(act==='card-modal-delete') el.onclick=()=>deleteCard();
+      else if(act==='card-import-single') el.onclick=()=>startImportSingleCard(id);
+      else if(act==='card-move-transactions') el.onclick=()=>startMoveTransactions(id);
+      else if(act==='move-tx-bg') el.onclick=e=>{ if(e.target===el) cancelMoveTransactions(); };
+      else if(act==='move-tx-cancel') el.onclick=()=>cancelMoveTransactions();
+      else if(act==='move-tx-dest') el.onchange=e=>{ cardUi.moveDestId=e.target.value; cardUi.moveBalanceOverride=null; renderCardsTab(); };
+      else if(act==='move-tx-balance') el.oninput=e=>{ cardUi.moveBalanceOverride=e.target.value===''?0:Number(e.target.value); };
+      else if(act==='move-tx-confirm') el.onclick=()=>confirmMoveTransactions();
       else if(act==='cf-name') el.oninput=e=>updCardField('name',e.target.value);
       else if(act==='cf-bank') el.oninput=e=>updCardField('bank',e.target.value);
       else if(act==='cf-network') el.onchange=e=>updCardField('network',e.target.value);
@@ -2325,33 +2434,29 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   function renderCardsTab(){
     const root = document.getElementById('root');
-    if(cardUi.viewingCardId){
-      const c=app.cards.find(c=>c.id===cardUi.viewingCardId);
-      if(c){
-        root.innerHTML = cardDetailHtml(c) + cardModalHtml();
-        attachCardsEvents();
-        return;
-      }
+    let pageHtml;
+    if(cardUi.editingCard){
+      pageHtml = cardEditHtml();
+    } else if(cardUi.viewingCardId && app.cards.find(c=>c.id===cardUi.viewingCardId)){
+      pageHtml = cardDetailHtml(app.cards.find(c=>c.id===cardUi.viewingCardId));
+    } else {
       cardUi.viewingCardId=null;
+      const nav = `<div class="cards-subnav">${CARDS_SUBNAV.map(([key,label])=>`<button class="cst ${cardUi.subTab===key?'on':''}" data-cards-tab="${key}">${label}</button>`).join('')}</div>`;
+      const bodies = { all:renderCardsAll, transactions:renderCardsTransactionsSub, payoff:renderCardsPayoffSub, reminders:renderCardsRemindersSub, best:renderCardsBestSub, insights:renderCardsInsightsSub };
+      const bodyHtml = (bodies[cardUi.subTab] || renderCardsAll)();
+      const animClass = cardsSlideDir === 'next' ? 'cards-slide-next' : cardsSlideDir === 'prev' ? 'cards-slide-prev' : '';
+      pageHtml = `
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
+          <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
+            <div class="syne" style="font-size:19px;color:#fff;">CREDIT <span class="grad-text">CARDS</span></div>
+          </div>
+          <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
+            ${nav}
+            <div class="cards-body ${animClass}">${bodyHtml}</div>
+          </div>
+        </div>`;
     }
-    const nav = `<div class="cards-subnav">${CARDS_SUBNAV.map(([key,label])=>`<button class="cst ${cardUi.subTab===key?'on':''}" data-cards-tab="${key}">${label}</button>`).join('')}</div>`;
-    const bodies = { all:renderCardsAll, transactions:renderCardsTransactionsSub, payoff:renderCardsPayoffSub, reminders:renderCardsRemindersSub, best:renderCardsBestSub, insights:renderCardsInsightsSub };
-    const bodyHtml = (bodies[cardUi.subTab] || renderCardsAll)();
-    const animClass = cardsSlideDir === 'next' ? 'cards-slide-next' : cardsSlideDir === 'prev' ? 'cards-slide-prev' : '';
-
-    root.innerHTML = `
-      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
-        <div style="border-bottom:1px solid rgba(148,163,184,.10);padding:12px 16px 10px;position:sticky;top:0;background:#070b14;z-index:10;">
-          <div class="syne" style="font-size:19px;color:#fff;">CREDIT <span class="grad-text">CARDS</span></div>
-        </div>
-        <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
-          ${nav}
-          <div class="cards-body ${animClass}">${bodyHtml}</div>
-        </div>
-      </div>
-      ${cardModalHtml()}
-      ${csvImportReviewHtml()}
-    `;
+    root.innerHTML = pageHtml + csvImportReviewHtml() + moveTransactionsModalHtml();
     attachCardsEvents();
   }
 
