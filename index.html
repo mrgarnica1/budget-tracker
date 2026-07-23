@@ -1930,12 +1930,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         return g;
       });
       cardUi.editingCard=null; cardUi.confirmingDeleteCard=false;
-      cardsImportUi={ filename:file.name, groups };
+      cardsImportUi={ filename:file.name, groups, stepIndex:0 };
       renderCardsTab();
     };
     reader.readAsText(file);
   }
   function cancelCsvImportReview(){ cardsImportUi=null; renderCardsTab(); }
+  function importReviewNext(){ if(!cardsImportUi) return; cardsImportUi.stepIndex=Math.min(cardsImportUi.groups.length, cardsImportUi.stepIndex+1); renderCardsTab(); }
+  function importReviewBack(){ if(!cardsImportUi) return; cardsImportUi.stepIndex=Math.max(0, cardsImportUi.stepIndex-1); renderCardsTab(); }
   function applyCsvImportReview(){
     const ui=cardsImportUi;
     if(!ui) return;
@@ -1970,37 +1972,114 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function csvImportReviewHtml(){
     const ui=cardsImportUi;
     if(!ui) return '';
-    const rows=ui.groups.map(g=>{
+    const total=ui.groups.length;
+    const step=Math.min(ui.stepIndex||0, total);
+    const isSummary=step>=total;
+    const dots=`<div style="display:flex;gap:5px;margin-bottom:14px;">${ui.groups.map((g,i)=>
+        `<div style="flex:1;height:3px;border-radius:2px;background:${i<step||isSummary?'#e8b565':(i===step?'#e8b56599':'rgba(148,163,184,.22)')};"></div>`
+      ).join('')}<div style="flex:1;height:3px;border-radius:2px;background:${isSummary?'#e8b565':'rgba(148,163,184,.22)'};"></div></div>`;
+
+    let body;
+    if(isSummary){
+      const rows=ui.groups.map(g=>{
+        const label=g.action==='skip' ? 'Skip — no changes' : g.action==='create' ? 'Create new card' : `Match to ${escHtml((app.cards.find(c=>c.id===g.action)||{}).name||'')}`;
+        const balTxt=g.action==='skip' ? '' : `$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}`;
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.12);">
+          <div>
+            <div style="font-size:12px;color:#fff;">${escHtml(g.key)}</div>
+            <div style="font-size:9px;color:${g.action==='skip'?'#5b6577':'#8b96a8'};margin-top:2px;">${label}</div>
+          </div>
+          <div style="font-size:12px;color:${g.action==='skip'?'#5b6577':'#e8b565'};font-weight:600;flex-shrink:0;">${balTxt}</div>
+        </div>`;
+      }).join('');
+      const activeCount=ui.groups.filter(g=>g.action!=='skip').length;
+      body=`
+        <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;margin-bottom:4px;">READY TO IMPORT</div>
+        <div style="font-size:10px;color:#8b96a8;margin-bottom:10px;">${activeCount} of ${total} account${total===1?'':'s'} will be updated. Nothing is saved yet — confirm to apply.</div>
+        ${rows}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button data-act="import-review-back" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:8px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">← Back</button>
+          <div style="flex:1;"></div>
+          <button data-act="import-review-apply" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:8px 18px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">Confirm Import</button>
+        </div>`;
+    } else {
+      const g=ui.groups[step];
       const opts=`<option value="skip" ${g.action==='skip'?'selected':''}>Skip this account</option>`
         + `<option value="create" ${g.action==='create'?'selected':''}>Create new card "${escHtml(g.key)}"</option>`
         + app.cards.map(c=>`<option value="${c.id}" ${g.action===c.id?'selected':''}>Match to: ${escHtml(c.name)}</option>`).join('');
       const notCard=g.accountType && !looksLikeCreditCardType(g.accountType);
-      return `
-      <div style="padding:12px 14px;border:1px solid ${notCard&&g.action!=='skip'?'#fbbf2455':'rgba(148,163,184,.14)'};border-radius:10px;margin-bottom:10px;">
+      const matchedCard=(g.action!=='skip'&&g.action!=='create') ? app.cards.find(c=>c.id===g.action) : null;
+
+      let compareHtml;
+      if(g.action==='skip'){
+        compareHtml=`<div style="padding:14px;border:1px dashed rgba(148,163,184,.25);border-radius:10px;text-align:center;font-size:10px;color:#5b6577;margin-top:10px;">This account will be skipped — nothing will change.</div>`;
+      } else if(matchedCard){
+        const oldBal=Number(matchedCard.balance)||0;
+        const already=g.transactions.length-g.newCount;
+        compareHtml=`
+          <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-top:10px;">
+            <div style="text-align:center;">
+              <div style="font-size:9px;color:#5b6577;letter-spacing:.08em;">CURRENT</div>
+              <div style="font-size:16px;color:#5b6577;text-decoration:line-through;margin-top:3px;">$${oldBal.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            </div>
+            <div style="font-size:16px;color:#5b6577;">→</div>
+            <div style="text-align:center;">
+              <div style="font-size:9px;color:#e8b565;letter-spacing:.08em;">NEW BALANCE</div>
+              <div style="font-size:18px;color:#fff;font-weight:700;margin-top:3px;">$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            </div>
+          </div>
+          <div style="text-align:center;font-size:9px;color:#8b96a8;margin-top:6px;">${g.newCount} new transaction${g.newCount===1?'':'s'}${already>0?` · ${already} already on file (skipped)`:''}</div>`;
+      } else {
+        compareHtml=`
+          <div style="padding:14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-top:10px;text-align:center;">
+            <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">NEW CARD — STARTING BALANCE</div>
+            <div style="font-size:18px;color:#fff;font-weight:700;margin-top:5px;">$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            <div style="font-size:9px;color:#8b96a8;margin-top:6px;">Purchases $${g.totalPurchases.toLocaleString(undefined,{maximumFractionDigits:2})}${g.totalPayments?` − payments $${g.totalPayments.toLocaleString(undefined,{maximumFractionDigits:2})}`:''}</div>
+          </div>`;
+      }
+
+      const txListHtml=g.transactions.length ? `
+        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-top:14px;margin-bottom:6px;">TRANSACTIONS IN THIS FILE (${g.transactions.length})</div>
+        <div style="max-height:150px;overflow-y:auto;border:1px solid rgba(148,163,184,.12);border-radius:8px;">
+          ${g.transactions.slice(0,50).map(t=>`
+            <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid rgba(148,163,184,.08);font-size:10px;">
+              <div style="color:#c7cfdb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${escHtml(t.name)}</div>
+              <div style="color:#5b6577;flex-shrink:0;">${escHtml(t.date||'')}</div>
+              <div style="color:${t.category==='Payment'?'#34d399':'#e8b565'};flex-shrink:0;font-weight:600;">${t.category==='Payment'?'−':''}$${Number(t.amount).toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            </div>`).join('')}
+        </div>` : '';
+
+      body=`
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
-          <div style="font-size:13px;color:#fff;font-weight:500;">${escHtml(g.key)}${g.accountType?`<span style="font-size:9px;color:#5b6577;font-weight:400;"> · ${escHtml(g.accountType)}</span>`:''}</div>
-          <div style="font-size:10px;color:#8b96a8;flex-shrink:0;">${g.newCount} new / ${g.transactions.length} tx</div>
+          <div style="font-size:14px;color:#fff;font-weight:600;">${escHtml(g.key)}</div>
+          <div style="font-size:9px;color:#5b6577;flex-shrink:0;">${step+1} of ${total}</div>
         </div>
-        ${notCard?`<div style="font-size:9px;color:#fbbf24;margin-top:4px;">Detected as ${escHtml(g.accountType)}, not a credit card — defaulted to Skip</div>`:''}
-        <select data-act="import-map-select" data-group-key="${escAttr(g.key)}" class="ef" style="margin-top:8px;width:100%;">${opts}</select>
-        ${g.action==='create'?`<div style="font-size:9px;color:#8b96a8;margin-top:8px;">Purchases $${g.totalPurchases.toLocaleString(undefined,{maximumFractionDigits:2})}${g.totalPayments?` − payments $${g.totalPayments.toLocaleString(undefined,{maximumFractionDigits:2})}`:''} = suggested $${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})} — review before applying.</div>`:''}
+        ${g.accountType?`<div style="font-size:9px;color:#5b6577;margin-top:2px;">${escHtml(g.accountType)}</div>`:''}
+        ${notCard?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">Detected as ${escHtml(g.accountType)}, not a credit card — defaulted to Skip</div>`:''}
         ${g.action!=='skip'&&g.dateSpanDays>45?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">⚠ This file spans ${g.dateSpanDays} days — if older activity isn't included, the suggested balance may not match today's real balance. Double-check before applying.</div>`:''}
+        ${compareHtml}
+        <div style="margin-top:14px;">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:4px;">ACTION FOR THIS ACCOUNT</div>
+          <select data-act="import-map-select" data-group-key="${escAttr(g.key)}" class="ef" style="width:100%;">${opts}</select>
+        </div>
         ${g.action!=='skip'?field(g.action==='create'?'STARTING BALANCE (suggested — editable)':'NEW BALANCE (suggested — editable)', `<input type="number" step="0.01" data-act="import-balance-override" data-group-key="${escAttr(g.key)}" value="${g.balanceOverride}" class="ef" />`):''}
-      </div>`;
-    }).join('');
+        ${txListHtml}
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          ${step>0?`<button data-act="import-review-back" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:8px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">← Back</button>`
+            :`<button data-act="import-review-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:8px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Cancel</button>`}
+          <div style="flex:1;"></div>
+          <button data-act="import-review-next" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:8px 18px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">${step===total-1?'Review All →':'Next →'}</button>
+        </div>`;
+    }
+
     return `<div data-act="import-review-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:460px;width:100%;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-          <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">IMPORT REVIEW</div>
-          <button data-act="import-review-cancel" style="background:transparent;border:none;color:#5b6577;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;">✕</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div style="font-size:10px;color:#5b6577;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"${escHtml(ui.filename)}"</div>
+          <button data-act="import-review-cancel" style="background:transparent;border:none;color:#5b6577;cursor:pointer;font-size:14px;line-height:1;padding:2px 4px;flex-shrink:0;">✕</button>
         </div>
-        <div style="font-size:10px;color:#8b96a8;margin-bottom:12px;">"${escHtml(ui.filename)}" — ${ui.groups.length} account${ui.groups.length===1?'':'s'} detected. Review the match and suggested balance for each before applying.</div>
-        ${rows}
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button data-act="import-review-cancel" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">Cancel</button>
-          <div style="flex:1;"></div>
-          <button data-act="import-review-apply" style="background:#e8b565;border:1px solid #e8b565;color:#070b14;padding:6px 16px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:600;">Apply Import</button>
-        </div>
+        ${dots}
+        ${body}
       </div>
     </div>`;
   }
@@ -2165,6 +2244,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='import-balance-override') el.oninput=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g) g.balanceOverride=e.target.value===''?0:Number(e.target.value); };
       else if(act==='import-review-bg') el.onclick=e=>{ if(e.target===el) cancelCsvImportReview(); };
       else if(act==='import-review-cancel') el.onclick=()=>cancelCsvImportReview();
+      else if(act==='import-review-next') el.onclick=()=>importReviewNext();
+      else if(act==='import-review-back') el.onclick=()=>importReviewBack();
       else if(act==='import-review-apply') el.onclick=()=>applyCsvImportReview();
     });
     document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
