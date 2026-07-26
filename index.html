@@ -1650,21 +1650,38 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   /* ── Overview tab — real data only. Uses the same checkSummary() the home list and detail
      view already use, so these numbers can never drift from what Paychecks itself shows. ── */
-  /* ── Overview tile shell — colored eyebrow label + chevron + big number, matching the
-     concept shell's .otile treatment. Color lives on the eyebrow (module identity), not the
-     number, so the empty state can share the exact same shell with a muted placeholder
-     instead of a bare text block. ── */
-  function overviewTileHtml({ jump, label, accent, count, num, sub }){
+  /* ── Overview tiles — every tile shares the Paycheck card's gradient shell, hover lift,
+     eyebrow, and number size (the .check-card class, reused rather than duplicated). Each
+     tile still gets whichever of the two optional pieces actually fits its data: a progress
+     bar needs a real ceiling (bills paid, credit utilization, loan payoff — not investments,
+     which have none), and a stacked-bar breakdown needs more than one segment to be worth
+     showing. Nothing is drawn if the underlying total is zero. ── */
+  function otileStackBar(items){
+    const total = items.reduce((s,i)=>s+i.val,0);
+    if(!(total>0) || items.length<2) return '';
+    return `<div style="display:flex;height:6px;border-radius:99px;overflow:hidden;background:rgba(148,163,184,.10);margin:14px 0 8px;">${items.map(i=>`<div style="height:100%;width:${(i.val/total*100).toFixed(1)}%;background:${i.color};"></div>`).join('<div style="width:2px;height:100%;background:#070b14;flex-shrink:0;"></div>')}</div>`;
+  }
+  function otileLegend(items){
+    if(items.length<2) return '';
+    return `<div style="display:flex;flex-wrap:wrap;gap:6px 14px;">${items.map(i=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;"><span style="width:6px;height:6px;border-radius:2px;background:${i.color};"></span>${escHtml(i.label)} $${i.val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>`).join('')}</div>`;
+  }
+  function otileProgressBar(leftLabel, rightLabel, pct, color){
+    return `<div style="margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b96a8;margin-bottom:6px;"><span>${leftLabel}</span><span>${rightLabel}</span></div>
+      <div style="height:6px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;"><div style="height:100%;width:${Math.max(0,Math.min(100,pct)).toFixed(0)}%;background:${color};"></div></div>
+    </div>`;
+  }
+  function overviewTileHtml({ jump, label, accent, count, num, sub, extraHtml }){
     const isEmpty = count === 0;
     return `
-      <div style="margin-top:10px;padding:13px 15px;border:1px solid rgba(148,163,184,.14);border-radius:10px;cursor:pointer;" data-act="ov-go-${jump}">
+      <div class="check-card" style="margin-top:10px;${isEmpty?'background:#070b14;':''}" data-act="ov-go-${jump}">
         <div style="display:flex;align-items:center;justify-content:space-between;">
           <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:${accent};">${label}</div>
           <span style="color:#3a4354;font-size:13px;">→</span>
         </div>
         ${isEmpty
-          ? `<div class="syne" style="font-size:21px;margin-top:4px;color:#3a4354;">—</div><div style="font-size:11px;color:#5b6577;margin-top:2px;">Not set up yet — tap to get started</div>`
-          : `<div class="syne" style="font-size:21px;margin-top:4px;color:#eef2f8;">${num}</div><div style="font-size:11px;color:#8b96a8;margin-top:2px;">${sub}</div>`}
+          ? `<div class="syne" style="font-size:26px;margin-top:6px;color:#3a4354;">—</div><div style="font-size:11px;color:#5b6577;margin-top:2px;">Not set up yet — tap to get started</div>`
+          : `<div class="syne" style="font-size:26px;margin-top:6px;color:#eef2f8;">${num}</div><div style="font-size:11px;color:#8b96a8;margin-top:2px;">${sub}</div>${extraHtml||''}`}
       </div>
     `;
   }
@@ -1678,28 +1695,46 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const s = checkSummary(chk);
       const over = s.remaining < 0;
       const paidFrac = s.activeCount > 0 ? s.paidCount / s.activeCount : 0;
-      const segs = TYPES.filter(t=>s.byType[t]).map(t=>`<div style="height:100%;width:${s.totalIncome>0?Math.min(100,(s.byType[t]/s.totalIncome)*100).toFixed(1):0}%;background:${TC[t]};"></div>`).join('<div style="width:2px;height:100%;background:#070b14;flex-shrink:0;"></div>');
-      const legend = TYPES.filter(t=>s.byType[t]).map(t=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;"><span style="width:6px;height:6px;border-radius:2px;background:${TC[t]};"></span>${t} $${s.byType[t].toFixed(0)}</span>`).join('');
+      const segs = TYPES.filter(t=>s.byType[t]).map(t=>({ label:t, val:s.byType[t], color:TC[t] }));
       return `
-        <div class="check-card" style="cursor:pointer;" data-act="ov-open-check">
+        <div class="check-card" style="margin-top:0;" data-act="ov-open-check">
           <div style="display:flex;align-items:center;justify-content:space-between;">
-            <div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:#22d3ee;">This Paycheck</div>
+            <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:#22d3ee;">This Paycheck</div>
             <span style="color:#3a4354;font-size:13px;">→</span>
           </div>
           <div class="syne" style="font-size:26px;margin-top:6px;color:${over?'#f87171':'#34d399'};">${over?'-':''}$${Math.abs(s.remaining).toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">of $${s.totalIncome.toLocaleString()}</span></div>
           <div style="font-size:11px;color:#8b96a8;margin-top:2px;">Check #${chk.checkN} · ${fmtD(chk.sd)} → ${fmtD(chk.ed)}</div>
-          <div style="margin-top:14px;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b96a8;margin-bottom:6px;">
-              <span>${s.paidCount} of ${s.activeCount} bills paid</span>
-              <span>${Math.round(paidFrac*100)}%</span>
-            </div>
-            <div style="height:6px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;"><div style="height:100%;width:${(paidFrac*100).toFixed(0)}%;background:#34d399;"></div></div>
-          </div>
-          <div style="display:flex;height:6px;border-radius:99px;overflow:hidden;background:rgba(148,163,184,.10);margin:14px 0 8px;">${segs}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px 14px;">${legend}</div>
+          ${otileProgressBar(`${s.paidCount} of ${s.activeCount} bills paid`, `${Math.round(paidFrac*100)}%`, paidFrac*100, '#34d399')}
+          ${otileStackBar(segs)}
+          ${otileLegend(segs)}
         </div>
       `;
     })();
+
+    // Credit Cards: utilization progress bar (only when at least one card has a real limit)
+    // plus an owner breakdown (only when more than one owner actually carries a balance).
+    const cardsTotal = app.cards.reduce((s,c)=>s+(Number(c.balance)||0),0);
+    const cardsLimitTotal = app.cards.reduce((s,c)=>s+(Number(c.limit)>0?Number(c.limit):0),0);
+    const cardsBalanceAgainstLimit = app.cards.reduce((s,c)=>s+(Number(c.limit)>0?(Number(c.balance)||0):0),0);
+    const cardsUtil = cardsLimitTotal>0 ? (cardsBalanceAgainstLimit/cardsLimitTotal)*100 : null;
+    const cardsByOwner = CARD_OWNERS.map(o=>({ label:o, val:app.cards.filter(c=>c.owner===o).reduce((s,c)=>s+(Number(c.balance)||0),0), color:CARD_OWNER_COLOR[o] })).filter(o=>o.val>0);
+    const cardsExtra = (cardsUtil!=null?otileProgressBar(`Utilization (of $${cardsLimitTotal.toLocaleString()} combined limit)`, `${Math.round(cardsUtil)}%`, cardsUtil, cardsUtil>=80?'#f87171':cardsUtil>=50?'#e8b565':'#34d399'):'') + otileStackBar(cardsByOwner) + otileLegend(cardsByOwner);
+
+    // Investments: type breakdown only — there's no natural "ceiling" to show progress against.
+    const investTotal = app.investments.reduce((s,a)=>s+(Number(a.balance)||0),0);
+    const investByType = ACCOUNT_TYPES.map(t=>({ label:t, val:app.investments.filter(a=>a.accountType===t).reduce((s,a)=>s+(Number(a.balance)||0),0), color:ACCOUNT_TYPE_COLOR[t] })).filter(t=>t.val>0);
+    const investExtra = otileStackBar(investByType) + otileLegend(investByType);
+
+    // Loans: payoff-progress bar (only for loans with a real original balance on file)
+    // plus a per-loan breakdown of what's still owed.
+    const activeLoans = app.loans.filter(l=>!l.paid);
+    const loansRemaining = activeLoans.reduce((s,l)=>s+(Number(l.balance)||0),0);
+    const loansWithOriginal = activeLoans.filter(l=>Number(l.original)>0);
+    const loansOriginalTotal = loansWithOriginal.reduce((s,l)=>s+Number(l.original),0);
+    const loansBalanceAgainstOriginal = loansWithOriginal.reduce((s,l)=>s+(Number(l.balance)||0),0);
+    const loansPctPaid = loansOriginalTotal>0 ? (1-(loansBalanceAgainstOriginal/loansOriginalTotal))*100 : null;
+    const loansByLoan = activeLoans.map((l,i)=>({ label:l.name||'Untitled loan', val:Number(l.balance)||0, color:SPEND_CAT_FALLBACK_PALETTE[i%SPEND_CAT_FALLBACK_PALETTE.length] })).filter(l=>l.val>0).sort((a,b)=>b.val-a.val);
+    const loansExtra = (loansPctPaid!=null?otileProgressBar(`${Math.round(loansPctPaid)}% paid off`, `of $${loansOriginalTotal.toLocaleString()} original`, loansPctPaid, '#34d399'):'') + otileStackBar(loansByLoan) + otileLegend(loansByLoan);
 
     root.innerHTML = `
       <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
@@ -1710,14 +1745,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
           ${payCard}
           ${overviewTileHtml({ jump:'cards', label:'Credit Cards', accent:'#e8b565', count:app.cards.length,
-              num:'$'+app.cards.reduce((s,c)=>s+(Number(c.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0}),
-              sub:`across ${app.cards.length} card${app.cards.length===1?'':'s'}` })}
+              num:'$'+cardsTotal.toLocaleString(undefined,{maximumFractionDigits:0}),
+              sub:`across ${app.cards.length} card${app.cards.length===1?'':'s'}`, extraHtml:cardsExtra })}
           ${overviewTileHtml({ jump:'invest', label:'Investments', accent:'#34d399', count:app.investments.length,
-              num:'$'+app.investments.reduce((s,a)=>s+(Number(a.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0}),
-              sub:`across ${app.investments.length} account${app.investments.length===1?'':'s'}` })}
+              num:'$'+investTotal.toLocaleString(undefined,{maximumFractionDigits:0}),
+              sub:`across ${app.investments.length} account${app.investments.length===1?'':'s'}`, extraHtml:investExtra })}
           ${overviewTileHtml({ jump:'loans', label:'Loans', accent:'#f87171', count:app.loans.length,
-              num:'$'+app.loans.filter(l=>!l.paid).reduce((s,l)=>s+(Number(l.balance)||0),0).toLocaleString(undefined,{maximumFractionDigits:0}),
-              sub:`across ${app.loans.filter(l=>!l.paid).length} loan${app.loans.filter(l=>!l.paid).length===1?'':'s'}` })}
+              num:'$'+loansRemaining.toLocaleString(undefined,{maximumFractionDigits:0}),
+              sub:`across ${activeLoans.length} loan${activeLoans.length===1?'':'s'}`, extraHtml:loansExtra })}
         </div>
       </div>
     `;
@@ -1752,6 +1787,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
      day) so a later payoff-planner/net-worth phase has real data to chart from day one. ── */
   const CARD_NETWORKS = ['Visa','Mastercard','Amex','Discover'];
   const CARD_OWNERS = ['You','Partner','Joint'];
+  const CARD_OWNER_COLOR = { You:'#e8b565', Partner:'#c9853e', Joint:'#8b6b3a' };
   /* Real network marks (Simple Icons, CC0 — simpleicons.org), not hand-drawn approximations.
      White/light chip background matches how these marks normally appear (brand guidelines
      specify white or transparent backgrounds for the full-color version); Amex is the one
