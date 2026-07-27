@@ -554,6 +554,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           app.investments = parsed.investments || app.investments || [];
           app.loans = parsed.loans || app.loans || [];
           migrateCardFields();
+          migrateLoanFields();
           // Current check may have been deleted remotely
           if (app.currentCheckId && !app.checks.find(c => c.id === app.currentCheckId)) app.currentCheckId = null;
           localStorage.setItem(APP_KEY, JSON.stringify({ checks: app.checks, cards: app.cards, investments: app.investments, loans: app.loans, updatedAt: d.updatedAt }));
@@ -1726,15 +1727,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const investExtra = otileStackBar(investByType) + otileLegend(investByType);
 
     // Loans: payoff-progress bar (only for loans with a real original balance on file)
-    // plus a per-loan breakdown of what's still owed.
+    // plus a breakdown by category (Mortgage/Auto Loan/Personal Loan/etc.), mirroring how
+    // the Investments tile breaks down by account type rather than by individual account.
     const activeLoans = app.loans.filter(l=>!l.paid);
     const loansRemaining = activeLoans.reduce((s,l)=>s+(Number(l.balance)||0),0);
     const loansWithOriginal = activeLoans.filter(l=>Number(l.original)>0);
     const loansOriginalTotal = loansWithOriginal.reduce((s,l)=>s+Number(l.original),0);
     const loansBalanceAgainstOriginal = loansWithOriginal.reduce((s,l)=>s+(Number(l.balance)||0),0);
     const loansPctPaid = loansOriginalTotal>0 ? (1-(loansBalanceAgainstOriginal/loansOriginalTotal))*100 : null;
-    const loansByLoan = activeLoans.map((l,i)=>({ label:l.name||'Untitled loan', val:Number(l.balance)||0, color:SPEND_CAT_FALLBACK_PALETTE[i%SPEND_CAT_FALLBACK_PALETTE.length] })).filter(l=>l.val>0).sort((a,b)=>b.val-a.val);
-    const loansExtra = (loansPctPaid!=null?otileProgressBar(`${Math.round(loansPctPaid)}% paid off`, `of $${loansOriginalTotal.toLocaleString()} original`, loansPctPaid, '#34d399'):'') + otileStackBar(loansByLoan) + otileLegend(loansByLoan);
+    const loansByCategory = LOAN_TYPES.map(t=>({ label:t, val:activeLoans.filter(l=>l.category===t).reduce((s,l)=>s+(Number(l.balance)||0),0), color:LOAN_TYPE_COLOR[t] })).filter(t=>t.val>0).sort((a,b)=>b.val-a.val);
+    const loansExtra = (loansPctPaid!=null?otileProgressBar(`${Math.round(loansPctPaid)}% paid off`, `of $${loansOriginalTotal.toLocaleString()} original`, loansPctPaid, '#34d399'):'') + otileStackBar(loansByCategory) + otileLegend(loansByCategory);
 
     root.innerHTML = `
       <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
@@ -2940,6 +2942,38 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     root.onpointercancel = () => { sx=null; sy=null; locked=null; };
   }
 
+  /* ── Institution logos — shared between Investments and Loans. Checked against Simple
+     Icons' actual data file (CC0, same source as the card network marks): institutions it
+     covers get their real mark; everything else falls back to a colored initial badge so
+     the list still reads consistently instead of a blank space or a generic bank icon. The
+     monogram colors are just a distinct fixed palette, not a claim about real brand colors. */
+  const REAL_LOGO = {
+    Robinhood: { hex:'#CCFF00', bg:'#fff', path:'M2.84 24h.53c.096 0 .192-.048.224-.128C7.591 13.696 11.94 8.656 14.67 5.638c.112-.128.064-.225-.096-.225h-4.88a.55.55 0 0 0-.45.225L5.746 9.972c-.514.642-.642 1.236-.642 2.086v4.43c-1.14 3.194-1.862 5.361-2.392 7.32-.032.125.016.192.129.192M20.447.646c-.754-.802-4.157-.834-5.73-.224a3 3 0 0 0-.786.465 41 41 0 0 0-3.323 3.178c-.112.113-.064.225.097.225h5.409c.497 0 .786.289.786.786v6.1c0 .16.128.208.225.064l3.258-4.254c.53-.69.69-.898.835-1.861.192-1.413.08-3.58-.77-4.479m-6.982 16.18 2.231-3.676a.7.7 0 0 0 .064-.29V6.73c0-.16-.112-.225-.224-.097-3.355 3.74-5.971 7.672-8.395 12.407-.06.12.016.225.16.177l5.009-1.54c.565-.174.882-.402 1.155-.852' },
+    Tesla: { hex:'#CC0000', path:'M12 5.362l2.475-3.026s4.245.09 8.471 2.054c-1.082 1.636-3.231 2.438-3.231 2.438-.146-1.439-1.154-1.79-4.354-1.79L12 24 8.619 5.034c-3.18 0-4.188.354-4.335 1.792 0 0-2.146-.795-3.229-2.43C5.28 2.431 9.525 2.34 9.525 2.34L12 5.362l-.004.002H12v-.002zm0-3.899c3.415-.03 7.326.528 11.328 2.28.535-.968.672-1.395.672-1.395C19.625.612 15.528.015 12 0 8.472.015 4.375.61 0 2.349c0 0 .195.525.672 1.396C4.674 1.989 8.585 1.435 12 1.46v.003z', bg:'#fff' },
+    Klarna: { hex:'#FFB3C7', path:'M4.592 2v20H0V2h4.592zm11.46 0c0 4.194-1.583 8.105-4.415 11.068l-.278.283L17.702 22h-5.668l-6.893-9.4 1.779-1.332c2.858-2.14 4.535-5.378 4.637-8.924L11.562 2h4.49zM21.5 17a2.5 2.5 0 110 5 2.5 2.5 0 010-5z', bg:'#fff' },
+  };
+  const MONOGRAM_PALETTE = ['#5b9bd5','#c9506a','#7dd3a0','#e0a05b','#9b8cd9','#5bc4c4','#d9a05b','#8fa3d1'];
+  const monogramColorAssignments = {};
+  let monogramColorIdx = 0;
+  function monogramColor(name){
+    if(!(name in monogramColorAssignments)) monogramColorAssignments[name] = MONOGRAM_PALETTE[monogramColorIdx++ % MONOGRAM_PALETTE.length];
+    return monogramColorAssignments[name];
+  }
+  function institutionLogo(institution){
+    if(!institution) return '';
+    const real = REAL_LOGO[institution];
+    // 26x18 (not square) matches the tile's real aspect ratio, so the mark scales down to
+    // fit with even padding on all sides instead of a square icon getting clipped top/bottom
+    // by the tile's overflow:hidden.
+    if(real) return `<svg width="26" height="18" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="${real.bg}"/><g transform="translate(2.4,2.4) scale(.8)"><path fill="${real.hex}" d="${real.path}"/></g></svg>`;
+    const c = monogramColor(institution);
+    return `<svg width="26" height="18" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="${c}"/><text x="12" y="16" font-size="12" font-weight="700" text-anchor="middle" fill="#fff" font-family="-apple-system,sans-serif">${escHtml(institution.charAt(0))}</text></svg>`;
+  }
+  function institutionLogoTile(institution){
+    if(!institution) return `<div style="flex-shrink:0;width:26px;height:18px;border-radius:4px;border:1px dashed rgba(148,163,184,.3);"></div>`;
+    return `<div style="flex-shrink:0;width:26px;height:18px;border-radius:4px;overflow:hidden;display:flex;align-items:center;justify-content:center;">${institutionLogo(institution)}</div>`;
+  }
+
   /* ── Investments — data model + CRUD. Mirrors the Cards module's conventions exactly
      (field() helper, .ef inputs, two-tap confirm-delete). Balance history is captured
      (one snapshot per day) so a later net-worth/yearly-progress phase has real data to
@@ -2956,7 +2990,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(last&&last.date===today) last.balance=acct.balance;
     else acct.history.push({ date:today, balance:acct.balance });
   }
-  let investUi = { editingInvestment:null, confirmingDeleteInvestment:false, sortBy:'balance-desc' };
+  let investUi = { editingInvestment:null, confirmingDeleteInvestment:false, sortBy:'balance-desc', typeFilter:'All' };
   const INVEST_SORTS = [
     ['balance-desc','Balance (high to low)'], ['balance-asc','Balance (low to high)'],
     ['name-asc','Name (A–Z)'], ['type-asc','Account Type'],
@@ -3041,6 +3075,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='if-accounttype') el.onchange=e=>updInvestmentField('accountType',e.target.value);
       else if(act==='if-balance') el.oninput=e=>updInvestmentField('balance',e.target.value===''?0:Number(e.target.value));
       else if(act==='invest-sort') el.onchange=e=>{ investUi.sortBy=e.target.value; renderInvestTab(); };
+      else if(act==='invest-type-filter') el.onchange=e=>{ investUi.typeFilter=e.target.value; renderInvestTab(); };
     });
     document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
   }
@@ -3049,35 +3084,80 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const root = document.getElementById('root');
     const accounts = app.investments;
     const totalBalance = accounts.reduce((s,a)=>s+(Number(a.balance)||0),0);
+    const typesInUse = Array.from(new Set(accounts.map(a=>a.accountType))).sort();
+    const byType = ACCOUNT_TYPES.map(t=>({ label:t, val:accounts.filter(a=>a.accountType===t).reduce((s,a)=>s+(Number(a.balance)||0),0), color:ACCOUNT_TYPE_COLOR[t] })).filter(t=>t.val>0).sort((a,b)=>b.val-a.val);
+    const topType = byType[0] || null;
+    const largest = accounts.length ? accounts.slice().sort((a,b)=>(Number(b.balance)||0)-(Number(a.balance)||0))[0] : null;
 
-    const listHtml = accounts.length === 0 ? `
-      <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No accounts yet — tap "+ Add Account" to start tracking your portfolio.</div>
-      <button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA</button>
-    ` : `
-      <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
-        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL BALANCE</div>
-        <div class="syne" style="font-size:24px;margin-top:4px;color:#34d399;">$${totalBalance.toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">across ${accounts.length} account${accounts.length===1?'':'s'}</span></div>
+    const statGrid = accounts.length===0 ? '' : `
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;overflow:hidden;">
+        <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);border-bottom:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL BALANCE</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#34d399;">$${totalBalance.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">across ${accounts.length} account${accounts.length===1?'':'s'}</div>
+        </div>
+        <div style="padding:13px 15px;border-bottom:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">ACCOUNT TYPES</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#22d3ee;">${typesInUse.length}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(typesInUse.join(', '))}</div>
+        </div>
+        <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOP TYPE</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#e8b565;">${topType?escHtml(topType.label):'—'}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">${topType?`$${topType.val.toLocaleString(undefined,{maximumFractionDigits:0})} · ${Math.round(topType.val/totalBalance*100)}% of portfolio`:'—'}</div>
+        </div>
+        <div style="padding:13px 15px;">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">LARGEST ACCOUNT</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#9085e9;">${largest?'$'+(largest.balance||0).toLocaleString(undefined,{maximumFractionDigits:0}):'—'}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${largest?escHtml(largest.name)+(largest.institution?' · '+escHtml(largest.institution):''):'—'}</div>
+        </div>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+    `;
+
+    const filterRow = accounts.length===0 ? '' : `
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:14px;">
+        <select data-act="invest-type-filter" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
+          ${['All',...ACCOUNT_TYPES].map(t=>`<option value="${escAttr(t)}" ${investUi.typeFilter===t?'selected':''}>${t}</option>`).join('')}
+        </select>
         <select data-act="invest-sort" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
           ${INVEST_SORTS.map(([key,label])=>`<option value="${key}" ${investUi.sortBy===key?'selected':''}>${label}</option>`).join('')}
         </select>
       </div>
-      ${sortInvestments(accounts, investUi.sortBy).map(a=>{
-        const c=ACCOUNT_TYPE_COLOR[a.accountType]||'#8b96a8';
-        return `
-        <div data-act="edit-investment" data-investment-id="${a.id}" style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;">
-            <div style="font-size:13px;color:#fff;font-weight:500;">${escHtml(a.name)}</div>
-            <div class="syne" style="font-size:15px;color:#eef2f8;">$${(a.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-          </div>
-          <div style="font-size:10px;color:#8b96a8;margin-top:2px;display:flex;align-items:center;gap:6px;">
-            ${escHtml(a.institution)||'—'}
-            <span style="display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:99px;background:${c}18;color:${c};border:1px solid ${c}30;">${escHtml(a.accountType)}</span>
-          </div>
-        </div>`;
-      }).join('')}
     `;
+
+    const typeBarTotal = byType.reduce((s,t)=>s+t.val,0);
+    const typeBreakdown = byType.length<2 ? '' : `
+      <div style="border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:13px 15px;margin-bottom:14px;">
+        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:9px;">BALANCE BY TYPE</div>
+        <div style="display:flex;height:8px;border-radius:99px;overflow:hidden;background:rgba(148,163,184,.10);margin-bottom:10px;">${byType.map(t=>`<div style="height:100%;width:${(t.val/typeBarTotal*100).toFixed(1)}%;background:${t.color};"></div>`).join('<div style="width:2px;height:100%;background:#070b14;flex-shrink:0;"></div>')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 14px;">${byType.map(t=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;"><span style="width:6px;height:6px;border-radius:2px;background:${t.color};"></span>${escHtml(t.label)} $${t.val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>`).join('')}</div>
+      </div>
+    `;
+
+    const filteredAccounts = investUi.typeFilter==='All' ? accounts : accounts.filter(a=>a.accountType===investUi.typeFilter);
+    const rowsHtml = accounts.length===0 ? `
+      <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No accounts yet — tap "+ Add Account" to start tracking your portfolio.</div>
+      <button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA</button>
+    ` : (filteredAccounts.length===0 ? `
+      <div style="padding:30px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No accounts for "${escHtml(investUi.typeFilter)}".</div>
+    ` : sortInvestments(filteredAccounts, investUi.sortBy).map(a=>{
+      const c=ACCOUNT_TYPE_COLOR[a.accountType]||'#8b96a8';
+      return `
+      <div data-act="edit-investment" data-investment-id="${a.id}" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${c};"></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${institutionLogoTile(a.institution)}
+          <div style="font-size:13px;color:#fff;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(a.name)}</div>
+          <div class="syne" style="font-size:15px;color:#eef2f8;flex-shrink:0;margin-left:8px;">$${(a.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+        </div>
+        <div style="margin-top:5px;margin-left:34px;display:flex;align-items:center;gap:6px;">
+          ${escHtml(a.institution)||'—'}
+          <span style="display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:99px;background:${c}18;color:${c};border:1px solid ${c}30;">${escHtml(a.accountType)}</span>
+        </div>
+      </div>`;
+    }).join(''));
+
+    const listHtml = `${statGrid}${filterRow}${typeBreakdown}${rowsHtml}`;
 
     root.innerHTML = `
       <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
@@ -3097,8 +3177,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   /* ── Loans — mortgages, personal loans, leases, BNPL: revolving-credit-free debt tracked
      separately from Cards. Mirrors the Investments module's conventions (field() helper,
      .ef inputs, two-tap confirm-delete, one-snapshot-per-day history). ── */
+  const LOAN_TYPES = ['Mortgage','Auto Loan','Personal Loan','Student Loan','BNPL','Overdraft','Other'];
+  const LOAN_TYPE_COLOR = { Mortgage:'#f87171', 'Auto Loan':'#e8b565', 'Personal Loan':'#9085e9', 'Student Loan':'#3987e5', BNPL:'#d55181', Overdraft:'#5b6577', Other:'#8b96a8' };
   function makeLoan(){
-    return { id:'loan-'+Date.now()+'-'+Math.random().toString(36).slice(2,6), name:'', balance:0, original:null, note:'', paid:false, createdAt:toDS(new Date()), history:[] };
+    return { id:'loan-'+Date.now()+'-'+Math.random().toString(36).slice(2,6), name:'', balance:0, original:null, note:'', paid:false, category:'Personal Loan', lender:'', createdAt:toDS(new Date()), history:[] };
   }
   function pushLoanHistory(loan){
     const today=toDS(new Date());
@@ -3107,7 +3189,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(last&&last.date===today) last.balance=loan.balance;
     else loan.history.push({ date:today, balance:loan.balance });
   }
-  let loanUi = { editingLoan:null, confirmingDeleteLoan:false, sortBy:'balance-desc' };
+  let loanUi = { editingLoan:null, confirmingDeleteLoan:false, sortBy:'balance-desc', categoryFilter:'All' };
   const LOAN_SORTS = [
     ['balance-desc','Balance (high to low)'], ['balance-asc','Balance (low to high)'],
     ['pctpaid-asc','% Paid (least to most)'], ['name-asc','Name (A–Z)'],
@@ -3134,6 +3216,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       balance:Math.max(0,Number(el.balance)||0),
       original:(el.original===''||el.original==null)?null:Math.max(0,Number(el.original)||0),
       note:(el.note||'').trim(), paid:!!el.paid,
+      category:LOAN_TYPES.indexOf(el.category)>=0?el.category:'Other',
+      lender:(el.lender||'').trim(),
       createdAt:el.createdAt||toDS(new Date()), history:el.history||[],
     };
     pushLoanHistory(cleaned);
@@ -3163,6 +3247,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         </div>
         ${field('NAME',`<input type="text" data-act="lf-name" data-focus-key="lf-name" value="${escAttr(el.name||'')}" placeholder="e.g. Primary Mortgage" class="ef" />`)}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          ${field('CATEGORY',`<select data-act="lf-category" class="ef">${LOAN_TYPES.map(t=>`<option value="${t}" ${el.category===t?'selected':''}>${t}</option>`).join('')}</select>`)}
+          ${field('LENDER',`<input type="text" data-act="lf-lender" data-focus-key="lf-lender" value="${escAttr(el.lender||'')}" placeholder="e.g. SoFi (optional)" class="ef" />`)}
           ${field('BALANCE',`<input type="number" min="0" step="0.01" data-act="lf-balance" data-focus-key="lf-balance" value="${el.balance}" class="ef" />`)}
           ${field('ORIGINAL AMOUNT',`<input type="number" min="0" step="0.01" data-act="lf-original" data-focus-key="lf-original" value="${el.original==null?'':el.original}" placeholder="optional" class="ef" />`)}
         </div>
@@ -3193,11 +3279,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='loan-modal-delete') el.onclick=()=>deleteLoan();
       else if(act==='load-starter-data') el.onclick=()=>seedMyAccounts();
       else if(act==='lf-name') el.oninput=e=>updLoanField('name',e.target.value);
+      else if(act==='lf-category') el.onchange=e=>updLoanField('category',e.target.value);
+      else if(act==='lf-lender') el.oninput=e=>updLoanField('lender',e.target.value);
       else if(act==='lf-balance') el.oninput=e=>updLoanField('balance',e.target.value===''?0:Number(e.target.value));
       else if(act==='lf-original') el.oninput=e=>updLoanField('original',e.target.value===''?null:Number(e.target.value));
       else if(act==='lf-note') el.oninput=e=>updLoanField('note',e.target.value);
       else if(act==='lf-paid') el.onchange=e=>updLoanField('paid',e.target.checked);
       else if(act==='loans-sort') el.onchange=e=>{ loanUi.sortBy=e.target.value; renderLoansTab(); };
+      else if(act==='loans-category-filter') el.onchange=e=>{ loanUi.categoryFilter=e.target.value; renderLoansTab(); };
     });
     document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
   }
@@ -3205,41 +3294,93 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function renderLoansTab(){
     const root = document.getElementById('root');
     const loans = app.loans;
-    const totalDebt = loans.filter(l=>!l.paid).reduce((s,l)=>s+(Number(l.balance)||0),0);
+    const activeLoans = loans.filter(l=>!l.paid);
+    const paidLoans = loans.filter(l=>l.paid);
+    const totalDebt = activeLoans.reduce((s,l)=>s+(Number(l.balance)||0),0);
+    const loansWithOriginal = activeLoans.filter(l=>Number(l.original)>0);
+    const originalTotal = loansWithOriginal.reduce((s,l)=>s+Number(l.original),0);
+    const balanceAgainstOriginal = loansWithOriginal.reduce((s,l)=>s+(Number(l.balance)||0),0);
+    const pctPaid = originalTotal>0 ? Math.max(0,Math.min(100,(1-(balanceAgainstOriginal/originalTotal))*100)) : null;
+    const byCategory = LOAN_TYPES.map(t=>({ label:t, val:activeLoans.filter(l=>l.category===t).reduce((s,l)=>s+(Number(l.balance)||0),0), color:LOAN_TYPE_COLOR[t] })).filter(t=>t.val>0).sort((a,b)=>b.val-a.val);
+    const topCategory = byCategory[0] || null;
 
     const emptyStateHtml = `
       <div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No loans yet — tap "+ Add Loan" to start tracking mortgages, personal loans, and leases.</div>
       <button data-act="load-starter-data" style="background:transparent;border:1px dashed #22d3ee55;color:#22d3ee;padding:10px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;width:100%;margin-top:10px;letter-spacing:.05em;">⬇ LOAD STARTER DATA</button>
     `;
-    const listHtml = loans.length === 0 ? emptyStateHtml : `
 
-      <div style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;">
-        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL DEBT</div>
-        <div class="syne" style="font-size:24px;margin-top:4px;color:#f87171;">$${totalDebt.toLocaleString(undefined,{maximumFractionDigits:0})}<span style="font-size:11px;color:#8b96a8;font-weight:400;margin-left:6px;">across ${loans.filter(l=>!l.paid).length} loan${loans.filter(l=>!l.paid).length===1?'':'s'}</span></div>
+    const statGrid = loans.length===0 ? '' : `
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:14px;overflow:hidden;">
+        <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);border-bottom:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOTAL DEBT</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#f87171;">$${totalDebt.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">across ${activeLoans.length} active loan${activeLoans.length===1?'':'s'}</div>
+        </div>
+        <div style="padding:13px 15px;border-bottom:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">PAID OFF</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#34d399;">${pctPaid!=null?Math.round(pctPaid)+'%':'—'}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">${pctPaid!=null?`of $${originalTotal.toLocaleString()} tracked original`:'no original amount on file'}</div>
+        </div>
+        <div style="padding:13px 15px;border-right:1px solid rgba(148,163,184,.14);">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">ACTIVE LOANS</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#e8b565;">${activeLoans.length}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">${paidLoans.length} paid off</div>
+        </div>
+        <div style="padding:13px 15px;">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">TOP CATEGORY</div>
+          <div class="syne" style="font-size:18px;margin-top:3px;color:#22d3ee;">${topCategory?topCategory.label:'—'}</div>
+          <div style="font-size:9.5px;line-height:1.35;color:#5b6577;margin-top:2px;min-height:26px;">${topCategory?`$${topCategory.val.toLocaleString(undefined,{maximumFractionDigits:0})} · ${Math.round(topCategory.val/totalDebt*100)}% of debt`:'—'}</div>
+        </div>
       </div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+    `;
+
+    const filterRow = loans.length===0 ? '' : `
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:14px;">
+        <select data-act="loans-category-filter" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
+          ${['All',...LOAN_TYPES].map(t=>`<option value="${escAttr(t)}" ${loanUi.categoryFilter===t?'selected':''}>${t}</option>`).join('')}
+        </select>
         <select data-act="loans-sort" class="ef" style="width:auto;padding:7px 26px 7px 12px;font-size:10.5px;">
           ${LOAN_SORTS.map(([key,label])=>`<option value="${key}" ${loanUi.sortBy===key?'selected':''}>${label}</option>`).join('')}
         </select>
       </div>
-      ${sortLoans(loans, loanUi.sortBy).map(l=>{
-        const paidPct = (l.original && l.original>0) ? Math.max(0,Math.min(100,Math.round((1-(l.balance/l.original))*100))) : null;
-        const c = l.paid ? '#34d399' : '#f0a500';
-        return `
-        <div data-act="edit-loan" data-loan-id="${l.id}" style="padding:14px 16px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;">
-          <div style="display:flex;align-items:baseline;justify-content:space-between;">
-            <div style="font-size:13px;color:#fff;font-weight:500;">${escHtml(l.name)}</div>
-            <div class="syne" style="font-size:15px;color:${l.paid?'#34d399':'#eef2f8'};">${l.paid?'PAID':'$'+(l.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-          </div>
-          <div style="font-size:10px;color:#8b96a8;margin-top:2px;">${escHtml(l.note)||'—'}</div>
-          ${paidPct!==null?`
-          <div style="margin-top:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:9px;color:#8b96a8;margin-bottom:4px;"><span>${paidPct}% paid</span><span>of $${l.original.toLocaleString()}</span></div>
-            <div style="height:5px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;"><div style="height:100%;width:${paidPct}%;background:${c};"></div></div>
-          </div>`:''}
-        </div>`;
-      }).join('')}
     `;
+
+    const catBarTotal = byCategory.reduce((s,c)=>s+c.val,0);
+    const catBreakdown = byCategory.length<2 ? '' : `
+      <div style="border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:13px 15px;margin-bottom:14px;">
+        <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:9px;">DEBT BY CATEGORY</div>
+        <div style="display:flex;height:8px;border-radius:99px;overflow:hidden;background:rgba(148,163,184,.10);margin-bottom:10px;">${byCategory.map(c=>`<div style="height:100%;width:${(c.val/catBarTotal*100).toFixed(1)}%;background:${c.color};"></div>`).join('<div style="width:2px;height:100%;background:#070b14;flex-shrink:0;"></div>')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 14px;">${byCategory.map(c=>`<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;"><span style="width:6px;height:6px;border-radius:2px;background:${c.color};"></span>${escHtml(c.label)} $${c.val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>`).join('')}</div>
+      </div>
+    `;
+
+    const filteredLoans = loanUi.categoryFilter==='All' ? loans : loans.filter(l=>l.category===loanUi.categoryFilter);
+    const rowsHtml = filteredLoans.length===0 ? `
+      <div style="padding:30px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No loans for "${escHtml(loanUi.categoryFilter)}".</div>
+    ` : sortLoans(filteredLoans, loanUi.sortBy).map(l=>{
+      const paidPct = (l.original && l.original>0) ? Math.max(0,Math.min(100,Math.round((1-(l.balance/l.original))*100))) : null;
+      const barColor = l.paid ? '#34d399' : '#f0a500';
+      const accent = LOAN_TYPE_COLOR[l.category] || '#8b96a8';
+      return `
+      <div data-act="edit-loan" data-loan-id="${l.id}" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${accent};"></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${institutionLogoTile(l.lender)}
+          <div style="font-size:13px;color:#fff;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(l.name)}</div>
+          <div class="syne" style="font-size:15px;color:${l.paid?'#34d399':'#eef2f8'};flex-shrink:0;margin-left:8px;">${l.paid?'PAID':'$'+(l.balance||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+        </div>
+        <div style="margin-top:5px;margin-left:34px;">
+          <span style="font-size:9px;padding:1px 7px;border-radius:99px;background:${accent}18;color:${accent};border:1px solid ${accent}30;">${escHtml(l.category)}</span>
+        </div>
+        ${paidPct!==null?`
+        <div style="margin-top:10px;">
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:#8b96a8;margin-bottom:4px;"><span>${paidPct}% paid</span><span>of $${l.original.toLocaleString()}</span></div>
+          <div style="height:5px;border-radius:99px;background:rgba(148,163,184,.10);overflow:hidden;"><div style="height:100%;width:${paidPct}%;background:${barColor};"></div></div>
+        </div>`:''}
+      </div>`;
+    }).join('');
+
+    const listHtml = loans.length === 0 ? emptyStateHtml : `${statGrid}${filterRow}${catBreakdown}${rowsHtml}`;
 
     root.innerHTML = `
       <div style="font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;background:#070b14;min-height:100vh;color:#eef2f8;padding-bottom:112px;">
@@ -3329,15 +3470,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         highlight:"5% at Sam's Club fuel", warning:"Cash back only redeemable at Sam's Club annually" },
     ];
   const SEED_LOANS = [
-    { name:'Primary Mortgage', balance:468509, original:537000, note:'Primary home — Anaheim, CA', paid:false },
-    { name:'SoFi Personal Loan', balance:14612, original:21000, note:'Personal loan', paid:false },
-    { name:'2022 Tesla Model Y', balance:15598, original:null, note:'Auto loan', paid:false },
-    { name:'Tesla Model 3', balance:3100, original:null, note:'Auto lease', paid:false },
-    { name:'02 Personal Loan', balance:1422, original:null, note:'Personal loan', paid:false },
-    { name:'Overdraft Protection', balance:40, original:null, note:'Overdraft protection line', paid:false },
-    { name:'Klarna', balance:49.69, original:null, note:'Buy now pay later', paid:false },
-    { name:'Affirm', balance:0, original:null, note:'Buy now pay later', paid:true },
-    { name:'SchoolsFirst Loan', balance:0, original:null, note:'Fully paid off', paid:true },
+    { name:'Primary Mortgage', balance:468509, original:537000, note:'Primary home — Anaheim, CA', paid:false, category:'Mortgage', lender:'' },
+    { name:'SoFi Personal Loan', balance:14612, original:21000, note:'Personal loan', paid:false, category:'Personal Loan', lender:'SoFi' },
+    { name:'2022 Tesla Model Y', balance:15598, original:null, note:'Auto loan', paid:false, category:'Auto Loan', lender:'Tesla' },
+    { name:'Tesla Model 3', balance:3100, original:null, note:'Auto lease', paid:false, category:'Auto Loan', lender:'Tesla' },
+    { name:'02 Personal Loan', balance:1422, original:null, note:'Personal loan', paid:false, category:'Personal Loan', lender:'' },
+    { name:'Overdraft Protection', balance:40, original:null, note:'Overdraft protection line', paid:false, category:'Overdraft', lender:'' },
+    { name:'Klarna', balance:49.69, original:null, note:'Buy now pay later', paid:false, category:'BNPL', lender:'Klarna' },
+    { name:'Affirm', balance:0, original:null, note:'Buy now pay later', paid:true, category:'BNPL', lender:'Affirm' },
+    { name:'SchoolsFirst Loan', balance:0, original:null, note:'Fully paid off', paid:true, category:'Personal Loan', lender:'SchoolsFirst FCU' },
   ];
   const SEED_INVESTMENTS = [
     { name:'Acorns Investing Account', institution:'Acorns', accountType:'Brokerage', balance:266 },
@@ -3392,6 +3533,20 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     });
     if(changed) saveApp();
   }
+  /* category/lender are new fields — lender is legitimately '' for several real loans
+     (no lender named anywhere in the data), so completion is tracked with a strict
+     undefined check rather than truthiness to avoid re-migrating every boot. */
+  function migrateLoanFields(){
+    if(!app.loans.length) return;
+    let changed=false;
+    app.loans.forEach(l=>{
+      if(l.category!==undefined && l.lender!==undefined) return;
+      const ref = SEED_LOANS.find(sl=>sl.name===l.name);
+      if(l.category===undefined){ l.category = ref ? ref.category : 'Other'; changed=true; }
+      if(l.lender===undefined){ l.lender = ref ? ref.lender : ''; changed=true; }
+    });
+    if(changed) saveApp();
+  }
 
   /* ── Boot ──────────────────────────────────────────────────── */
   try {
@@ -3419,11 +3574,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   if(sessionStorage.getItem(PIN_SESSION_KEY)==='1'){
     loadApp();
     migrateCardFields();
+    migrateLoanFields();
     snapshotDailyHistory();
     renderApp();
   } else {
     loadApp();
     migrateCardFields();
+    migrateLoanFields();
     snapshotDailyHistory();
     // Face ID must fire the instant the PIN screen mounts — any async wait here (even a
     // fast local platform check) burns into the browser's transient-user-activation window
