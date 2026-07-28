@@ -1140,28 +1140,58 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   function expandedRowHtml(b,bw){
     const c=TC[b.type]||'#5b6577';
-    const items=[
-      ['Category',`<span style="display:inline-block;padding:1px 7px;border-radius:99px;font-size:9px;background:${c}18;color:${c};border:1px solid ${c}30;">${b.type}</span>`],
-      ['Bank',escHtml(b.bank)||'—'],
-      ['Frequency',b.frequency],
-      ['Autopay',b.autopay?'Yes ✓':'No'],
-      ['Due Day',b.dueDay?`Day ${b.dueDay}`:'Variable'],
-      ['Full Amount',`$${(b.baseAmount||0).toLocaleString()}`],
-      ['Biweekly Split',`$${bw.toFixed(2)}`],
-      ['Status',`<span style="color:${isEffectivelyActive(b)?'#34d399':'#5b6577'};">${isEffectivelyActive(b)?b.manualActive===true?'Active (manual)':'Active':'Inactive'}</span>`],
+    const pillBase='display:inline-flex;align-items:center;padding:3px 9px;border-radius:6px;font-size:10px;';
+    const pills=[
+      `<span style="${pillBase}background:${c}18;color:${c};border:1px solid ${c}30;">${b.type}</span>`,
+      `<span style="${pillBase}background:rgba(148,163,184,.08);color:#b8c2d1;border:1px solid rgba(148,163,184,.16);">${b.frequency}</span>`,
+      `<span style="${pillBase}background:rgba(148,163,184,.08);color:#b8c2d1;border:1px solid rgba(148,163,184,.16);">${b.dueDay?`Due day ${b.dueDay}`:'No due day'}</span>`,
+      `<span style="${pillBase}background:${b.autopay?'#34d39918':'rgba(148,163,184,.08)'};color:${b.autopay?'#34d399':'#8b96a8'};border:1px solid ${b.autopay?'#34d39930':'rgba(148,163,184,.16)'};">${b.autopay?'Autopay on':'Autopay off'}</span>`,
     ];
-    return `<div style="border-top:1px solid rgba(148,163,184,.10);padding:10px 14px 12px;background:#070b14;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;">
-      ${items.map(([l,v])=>`<div><div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:4px;">${l.toUpperCase()}</div><div style="font-size:11px;color:#b8c2d1;">${v}</div></div>`).join('')}
-      <div style="grid-column:1/-1;margin-top:8px;display:flex;gap:6px;align-items:center;">
-        <button data-act="edit-bill" data-bill-id="${b.id}" title="Edit" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#eef2f8;width:28px;height:28px;border-radius:8px;font-size:12px;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+    const btnBase='display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:6px;font-size:11px;font-family:inherit;cursor:pointer;';
+    return `<div data-expanded="1" style="border-top:1px solid rgba(148,163,184,.10);padding:10px 14px 12px;background:#070b14;animation:pop .15s ease;">
+      <div style="display:flex;border:1px solid rgba(148,163,184,.16);border-radius:8px;overflow:hidden;margin-bottom:10px;">
+        <div style="flex:1;padding:8px 12px;">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:3px;">FULL AMOUNT</div>
+          <div style="font-size:15px;color:#eef2f8;font-weight:600;">$${(b.baseAmount||0).toLocaleString()}</div>
+        </div>
+        <div style="width:1px;background:rgba(148,163,184,.16);"></div>
+        <div style="flex:1;padding:8px 12px;">
+          <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;margin-bottom:3px;">BIWEEKLY SPLIT</div>
+          <div style="font-size:15px;color:#22d3ee;font-weight:600;">$${bw.toFixed(2)}</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">${pills.join('')}</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button data-act="edit-bill" data-bill-id="${b.id}" style="${btnBase}background:transparent;border:1px solid rgba(148,163,184,.22);color:#eef2f8;">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+          Edit
         </button>
-        <button data-act="toggle-pin" data-bill-id="${b.id}" style="background:${b.pinned?'#22d3ee18':'transparent'};border:1px solid ${b.pinned?'#22d3ee55':'rgba(148,163,184,.22)'};color:${b.pinned?'#22d3ee':'#8b96a8'};padding:4px 12px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;">${b.pinned?'📌 Unpin':'📌 Pin'}</button>
-        <div style="flex:1;"></div>
-        ${!b.archived?`<button data-act="toggle-active" data-bill-id="${b.id}" data-eff-active="${isEffectivelyActive(b)?'1':'0'}" style="background:transparent;border:1px solid ${isEffectivelyActive(b)?'#f8717155':'#34d39955'};color:${isEffectivelyActive(b)?'#f87171':'#34d399'};padding:4px 12px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;">${isEffectivelyActive(b)?'Deactivate':'Activate'}</button>`:''}
-        <button data-act="toggle-archive" data-bill-id="${b.id}" style="background:transparent;border:1px solid #3a435433355;color:#5b6577;padding:4px 12px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;">${b.archived?'🗄️ Unarchive':'🗄️ Archive'}</button>
+        <button data-act="toggle-pin" data-bill-id="${b.id}" style="${btnBase}background:${b.pinned?'#22d3ee18':'transparent'};border:1px solid ${b.pinned?'#22d3ee55':'rgba(148,163,184,.22)'};color:${b.pinned?'#22d3ee':'#8b96a8'};">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>
+          ${b.pinned?'Unpin':'Pin'}
+        </button>
       </div>
     </div>`;
+  }
+
+  // Bypasses the full render() rebuild for expand/collapse: swapping the whole
+  // root.innerHTML for one row's disclosure caused a visible lag, especially with
+  // many bills. This patches just the affected row's DOM and re-wires handlers,
+  // leaving the swipe-gesture logic on the row untouched.
+  function toggleExpandRow(id){
+    const willOpen=!state.expandedIds.has(id);
+    if(willOpen) state.expandedIds.add(id); else state.expandedIds.delete(id);
+    const row=document.querySelector(`[data-row="1"][data-bill-id="${id}"]`);
+    const contentEl=row&&row.querySelector('[data-content="1"]');
+    if(!contentEl){ render(); return; }
+    const existing=contentEl.querySelector('[data-expanded="1"]');
+    if(!willOpen){ if(existing) existing.remove(); }
+    else if(!existing){
+      const b=state.bills.find(bb=>bb.id===id);
+      if(!b) return;
+      contentEl.insertAdjacentHTML('beforeend', expandedRowHtml(b, bwAmt(b)));
+    }
+    attachDetailEvents();
   }
 
   function field(label,inner){
@@ -1171,6 +1201,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function modalHtml(){
     if(!state.editingBill) return '';
     const eb=state.editingBill, isNew=eb.id==null, c=TC[eb.type]||'#5b6577';
+    const realBill=isNew?null:state.bills.find(bb=>bb.id===eb.id);
+    const effActiveNow=realBill?isEffectivelyActive(enrich([realBill],new Date(state.sd+'T00:00:00'),new Date(state.ed+'T23:59:59'))[0]):false;
+    const statusBtnStyle='display:inline-flex;align-items:center;padding:5px 12px;border-radius:6px;font-size:11px;font-family:inherit;cursor:pointer;background:transparent;';
     return `<div data-act="modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
@@ -1197,6 +1230,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           </div>
           <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:${eb.pinned?'#22d3ee':'#b8c2d1'};cursor:pointer;user-select:none;"><input type="checkbox" data-act="ef-pinned" ${eb.pinned?'checked':''} style="cursor:pointer;" /> 📌 Pin to Top</label>
         </div>
+        ${!isNew?`<div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(148,163,184,.14);flex-wrap:wrap;">
+          ${!eb.archived?`<button data-act="modal-toggle-active" style="${statusBtnStyle}border:1px solid ${effActiveNow?'#f8717155':'#34d39955'};color:${effActiveNow?'#f87171':'#34d399'};">${effActiveNow?'Deactivate':'Activate'}</button>`:''}
+          <button data-act="modal-toggle-archive" style="${statusBtnStyle}border:1px solid rgba(148,163,184,.3);color:#8b96a8;">${eb.archived?'Unarchive':'Archive'}</button>
+        </div>`:''}
         ${state.confirmingDelete?`<div style="margin-top:10px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the bill. Tap <b>DELETE</b> again to confirm.</div>`:''}
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;align-items:center;">
           ${!isNew?`<button data-act="modal-delete" style="background:${state.confirmingDelete?'#f87171':'transparent'};border:1px solid ${state.confirmingDelete?'#f87171':'#f8717155'};color:${state.confirmingDelete?'#070b14':'#f87171'};padding:6px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;font-weight:${state.confirmingDelete?'600':'400'};">${state.confirmingDelete?'CONFIRM DELETE':'Delete'}</button>`:''}
@@ -1525,7 +1562,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         el.onchange=e=>{ const b=state.bills.find(b=>b.id===id); if(b) b.planned=e.target.value===''?0:Number(e.target.value); render(); };
         el.onclick=e=>e.stopPropagation(); el.onmousedown=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation();
       }
-      else if(act==='expand-row') el.onclick=e=>{ if(e.target&&e.target.closest&&e.target.closest('[data-stop="1"]')) return; state.expandedIds.has(id)?state.expandedIds.delete(id):state.expandedIds.add(id); render(); };
       else if(act==='toggle-paid') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){b.paid=!b.paid;render();showUndoToast(id);} };
       else if(act==='toggle-autopay') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){b.autopay=!b.autopay;render();} };
       else if(act==='toggle-active') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){ const wasActive=el.dataset.effActive==='1'; b.manualActive=wasActive?false:true; render(); } };
@@ -1537,6 +1573,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='modal-cancel') el.onclick=()=>cancelModal();
       else if(act==='modal-save') el.onclick=()=>saveBill();
       else if(act==='modal-delete') el.onclick=()=>deleteBill();
+      else if(act==='modal-toggle-active') el.onclick=e=>{ e.stopPropagation(); const eb=state.editingBill; if(!eb||eb.id==null) return; const b=state.bills.find(bb=>bb.id===eb.id); if(!b) return; const start=new Date(state.sd+'T00:00:00'), end=new Date(state.ed+'T23:59:59'); const wasActive=isEffectivelyActive(enrich([b],start,end)[0]); b.manualActive=wasActive?false:true; eb.manualActive=b.manualActive; render(); };
+      else if(act==='modal-toggle-archive') el.onclick=e=>{ e.stopPropagation(); const eb=state.editingBill; if(!eb||eb.id==null) return; const b=state.bills.find(bb=>bb.id===eb.id); if(!b) return; b.archived=!b.archived; if(!b.archived) b.manualActive=false; eb.archived=b.archived; eb.manualActive=b.manualActive; state.expandedIds.delete(b.id); render(); };
       else if(act==='ef-name') el.oninput=e=>updEditField('name',e.target.value);
       else if(act==='ef-bank') el.oninput=e=>updEditField('bank',e.target.value);
       else if(act==='ef-type') el.onchange=e=>updEditField('type',e.target.value);
@@ -1566,16 +1604,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const content=row.querySelector('[data-content="1"]');
       const backdrop=row.querySelector('[data-backdrop="1"]');
       const bdLeft=row.querySelector('[data-backdrop-left="1"]');
-      let sX=null,sY=null,dx=0,dy=0,didSwipe=false,locked=null;
-      row.onpointerdown=e=>{ const t=e.target; if(!t) return; if(t.closest&&(t.closest('[data-stop="1"]')||t.closest('input,select,button'))) return; sX=e.clientX;sY=e.clientY;dx=0;dy=0;didSwipe=false;locked=null; content.style.transition='none'; if(backdrop) backdrop.style.transition='none'; if(bdLeft) bdLeft.style.transition='none'; try{row.setPointerCapture(e.pointerId);}catch(_){} };
+      let sX=null,sY=null,dx=0,dy=0,didSwipe=false,locked=null,tapTarget=null;
+      // Tap-to-expand lives here rather than as a plain click handler on the header div:
+      // once row.setPointerCapture() fires on pointerdown (needed for swipe tracking), the
+      // browser retargets the resulting click event to `row` itself, so a listener on the
+      // inner header div never receives it. Tracking taps through the same pointer sequence
+      // that already distinguishes swipe-vs-tap sidesteps that retargeting entirely.
+      row.onpointerdown=e=>{ const t=e.target; if(!t) return; if(t.closest&&(t.closest('[data-stop="1"]')||t.closest('input,select,button'))) return; tapTarget=t.closest&&t.closest('[data-act="expand-row"]'); sX=e.clientX;sY=e.clientY;dx=0;dy=0;didSwipe=false;locked=null; content.style.transition='none'; if(backdrop) backdrop.style.transition='none'; if(bdLeft) bdLeft.style.transition='none'; try{row.setPointerCapture(e.pointerId);}catch(_){} };
       row.onpointermove=e=>{ if(sX==null) return; dx=e.clientX-sX;dy=e.clientY-sY; if(locked==null){ if(Math.abs(dx)>8||Math.abs(dy)>8) locked=Math.abs(dx)>Math.abs(dy)?'h':'v'; else return; } if(locked==='v') return; if(Math.abs(dx)>16) didSwipe=true;
         if(dx>0){ content.style.transform=`translateX(${Math.max(0,dx)}px)`; if(backdrop){backdrop.style.opacity=Math.min(1,dx/SWIPE_THRESHOLD).toFixed(2);backdrop.style.fontWeight=dx>=SWIPE_THRESHOLD?'700':'500';} if(bdLeft) bdLeft.style.opacity='0'; }
         else{ content.style.transform=`translateX(-${Math.max(0,-dx)}px)`; if(bdLeft){bdLeft.style.opacity=Math.min(1,-dx/SWIPE_THRESHOLD).toFixed(2);bdLeft.style.fontWeight=-dx>=SWIPE_THRESHOLD?'700':'500';} if(backdrop) backdrop.style.opacity='0'; }
       };
-      const finish=e=>{ if(sX==null) return; const tr=locked==='h'&&dx>=SWIPE_THRESHOLD, tl=locked==='h'&&dx<=-SWIPE_THRESHOLD; sX=null;sY=null; if(didSwipe) suppressClickUntil=Date.now()+400; try{row.releasePointerCapture(e.pointerId);}catch(_){} content.style.transition='transform .25s ease'; if(backdrop) backdrop.style.transition='opacity .25s ease'; if(bdLeft) bdLeft.style.transition='opacity .25s ease';
+      const finish=e=>{ if(sX==null) return; const tr=locked==='h'&&dx>=SWIPE_THRESHOLD, tl=locked==='h'&&dx<=-SWIPE_THRESHOLD; const wasTap=locked===null&&!!tapTarget; sX=null;sY=null; if(didSwipe) suppressClickUntil=Date.now()+400; try{row.releasePointerCapture(e.pointerId);}catch(_){} content.style.transition='transform .25s ease'; if(backdrop) backdrop.style.transition='opacity .25s ease'; if(bdLeft) bdLeft.style.transition='opacity .25s ease';
         if(tr){ content.style.transform='translateX(110%)'; if(backdrop) backdrop.style.opacity='1'; setTimeout(()=>{ const bill=state.bills.find(b=>b.id===id); if(bill){ const wasActive=row.dataset.effActive==='1'; bill.manualActive=wasActive?false:true; render(); } },230); }
         else if(tl){ content.style.transform='translateX(-110%)'; if(bdLeft) bdLeft.style.opacity='1'; setTimeout(()=>{ const b=state.bills.find(b=>b.id===id); if(b){b.paid=!b.paid;render();showUndoToast(id);} },230); }
-        else{ content.style.transform='translateX(0)'; if(backdrop) backdrop.style.opacity='0'; if(bdLeft) bdLeft.style.opacity='0'; }
+        else{ content.style.transform='translateX(0)'; if(backdrop) backdrop.style.opacity='0'; if(bdLeft) bdLeft.style.opacity='0'; if(wasTap) toggleExpandRow(id); }
       };
       row.onpointerup=finish; row.onpointercancel=finish;
     });
