@@ -1130,10 +1130,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       </div>`;
   }
 
+  // No data-act/click handling here — the caller wraps this in its own
+  // data-act div. Giving this inner div a matching data-act used to make
+  // attachDetailEvents() bind the toggle handler twice (once per element),
+  // so a tap on the switch itself fired on, then immediately off again.
   function toggleSwitch(on, act, id, onColor='#34d399'){
-    return `<div data-act="${act}" data-bill-id="${id}" style="display:inline-flex;align-items:center;cursor:pointer;">
-      <div style="width:32px;height:18px;border-radius:99px;background:${on?onColor:'rgba(148,163,184,.22)'};position:relative;transition:background .2s;flex-shrink:0;">
-        <div style="position:absolute;top:3px;left:${on?'15px':'3px'};width:12px;height:12px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>
+    return `<div style="display:inline-flex;align-items:center;">
+      <div style="width:42px;height:24px;border-radius:99px;background:${on?onColor:'rgba(148,163,184,.22)'};position:relative;transition:background .2s;flex-shrink:0;">
+        <div style="position:absolute;top:3px;left:${on?'21px':'3px'};width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>
       </div>
     </div>`;
   }
@@ -1203,7 +1207,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const eb=state.editingBill, isNew=eb.id==null, c=TC[eb.type]||'#5b6577';
     const realBill=isNew?null:state.bills.find(bb=>bb.id===eb.id);
     const effActiveNow=realBill?isEffectivelyActive(enrich([realBill],new Date(state.sd+'T00:00:00'),new Date(state.ed+'T23:59:59'))[0]):false;
-    const statusBtnStyle='display:inline-flex;align-items:center;padding:5px 12px;border-radius:6px;font-size:11px;font-family:inherit;cursor:pointer;background:transparent;';
+    const statusValue=eb.archived?'archived':effActiveNow?'active':'inactive';
     return `<div data-act="modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
@@ -1228,11 +1232,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             ${toggleSwitch(eb.active,'ef-active-toggle',null,'#34d399')}
             <span style="font-size:11px;color:${eb.active?'#34d399':'#8b96a8'};">Active</span>
           </div>
-          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:${eb.pinned?'#22d3ee':'#b8c2d1'};cursor:pointer;user-select:none;"><input type="checkbox" data-act="ef-pinned" ${eb.pinned?'checked':''} style="cursor:pointer;" /> 📌 Pin to Top</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:${eb.pinned?'#22d3ee':'#b8c2d1'};cursor:pointer;user-select:none;"><input type="checkbox" data-act="ef-pinned" ${eb.pinned?'checked':''} style="cursor:pointer;width:18px;height:18px;accent-color:#22d3ee;" /> Pin to Top</label>
         </div>
-        ${!isNew?`<div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid rgba(148,163,184,.14);flex-wrap:wrap;">
-          ${!eb.archived?`<button data-act="modal-toggle-active" style="${statusBtnStyle}border:1px solid ${effActiveNow?'#f8717155':'#34d39955'};color:${effActiveNow?'#f87171':'#34d399'};">${effActiveNow?'Deactivate':'Activate'}</button>`:''}
-          <button data-act="modal-toggle-archive" style="${statusBtnStyle}border:1px solid rgba(148,163,184,.3);color:#8b96a8;">${eb.archived?'Unarchive':'Archive'}</button>
+        ${!isNew?`<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(148,163,184,.14);">
+          ${field('STATUS',`<select data-act="modal-status" class="ef">
+            <option value="active" ${statusValue==='active'?'selected':''}>Active</option>
+            <option value="inactive" ${statusValue==='inactive'?'selected':''}>Inactive</option>
+            <option value="archived" ${statusValue==='archived'?'selected':''}>Archived</option>
+          </select>`)}
         </div>`:''}
         ${state.confirmingDelete?`<div style="margin-top:10px;padding:8px 10px;border:1px solid #f8717155;background:#f871711a;border-radius:8px;font-size:10px;color:#f87171;letter-spacing:.05em;">This will permanently remove the bill. Tap <b>DELETE</b> again to confirm.</div>`:''}
         <div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap;align-items:center;">
@@ -1573,8 +1580,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='modal-cancel') el.onclick=()=>cancelModal();
       else if(act==='modal-save') el.onclick=()=>saveBill();
       else if(act==='modal-delete') el.onclick=()=>deleteBill();
-      else if(act==='modal-toggle-active') el.onclick=e=>{ e.stopPropagation(); const eb=state.editingBill; if(!eb||eb.id==null) return; const b=state.bills.find(bb=>bb.id===eb.id); if(!b) return; const start=new Date(state.sd+'T00:00:00'), end=new Date(state.ed+'T23:59:59'); const wasActive=isEffectivelyActive(enrich([b],start,end)[0]); b.manualActive=wasActive?false:true; eb.manualActive=b.manualActive; render(); };
-      else if(act==='modal-toggle-archive') el.onclick=e=>{ e.stopPropagation(); const eb=state.editingBill; if(!eb||eb.id==null) return; const b=state.bills.find(bb=>bb.id===eb.id); if(!b) return; b.archived=!b.archived; if(!b.archived) b.manualActive=false; eb.archived=b.archived; eb.manualActive=b.manualActive; state.expandedIds.delete(b.id); render(); };
+      else if(act==='modal-status') el.onchange=e=>{ const eb=state.editingBill; if(!eb||eb.id==null) return; const b=state.bills.find(bb=>bb.id===eb.id); if(!b) return; const v=e.target.value; if(v==='archived'){ b.archived=true; b.manualActive=false; } else { b.archived=false; b.manualActive=v==='active'; } eb.archived=b.archived; eb.manualActive=b.manualActive; state.expandedIds.delete(b.id); render(); };
       else if(act==='ef-name') el.oninput=e=>updEditField('name',e.target.value);
       else if(act==='ef-bank') el.oninput=e=>updEditField('bank',e.target.value);
       else if(act==='ef-type') el.onchange=e=>updEditField('type',e.target.value);
