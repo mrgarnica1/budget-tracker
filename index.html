@@ -357,6 +357,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const b=bank.toLowerCase();
     return BANK_LINKS.find(entry=>entry.match.some(m=>b.includes(m)))||null;
   }
+  // A per-bill bankUrl (set from the edit modal) overrides the auto-detected
+  // one — e.g. to point at a bank's login page instead of its homepage, or to
+  // cover a bank name the built-in list doesn't recognize.
+  function resolveBankLink(b){
+    const auto=bankLink(b.bank);
+    if(b.bankUrl&&b.bankUrl.trim()) return { url:b.bankUrl.trim(), label:auto?auto.label:(b.bank||'Open') };
+    return auto;
+  }
 
   /* ── Helpers ───────────────────────────────────────────────── */
   function bwAmt(b){ if(b.frequency==="bi-weekly") return (Number(b.baseAmount)||0)/2; if(b.frequency==="monthly") return (Number(b.baseAmount)||0)/2; return (Number(b.baseAmount)||0)/26; }
@@ -1060,7 +1068,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   /* ── Detail screen helpers ─────────────────────────────────── */
   function newBillTemplate(){
-    return { id:null,name:'',type:'Bills',bank:'',baseAmount:0,frequency:'monthly',autopay:false,dueDay:null,active:true,pinned:false,paid:false,planned:0,plannedTouched:false };
+    return { id:null,name:'',type:'Bills',bank:'',bankUrl:'',baseAmount:0,frequency:'monthly',autopay:false,dueDay:null,active:true,pinned:false,paid:false,planned:0,plannedTouched:false };
   }
   function startNewBill(){ state.editingBill=newBillTemplate(); state.confirmingDelete=false; render(); }
   function startEditBill(id){ const b=state.bills.find(b=>b.id===id); if(!b) return; state.editingBill=Object.assign({},b,{plannedTouched:true}); state.confirmingDelete=false; render(); }
@@ -1071,7 +1079,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const cleaned={
       id: isNew?(state.bills.length?Math.max.apply(null,state.bills.map(b=>b.id))+1:1):eb.id,
       name:((eb.name||'').trim())||'Untitled Bill', type:TYPES.indexOf(eb.type)>=0?eb.type:'Bills',
-      bank:(eb.bank||'').trim(), baseAmount:Math.max(0,Number(eb.baseAmount)||0),
+      bank:(eb.bank||'').trim(), bankUrl:(eb.bankUrl||'').trim(), baseAmount:Math.max(0,Number(eb.baseAmount)||0),
       frequency:FREQUENCIES.indexOf(eb.frequency)>=0?eb.frequency:'monthly',
       autopay:!!eb.autopay,
       dueDay:(eb.dueDay===''||eb.dueDay==null)?null:Math.max(1,Math.min(31,Number(eb.dueDay)||0)),
@@ -1178,7 +1186,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       `<span style="${pillBase}background:${b.autopay?'#34d39918':'rgba(148,163,184,.08)'};color:${b.autopay?'#34d399':'#8b96a8'};border:1px solid ${b.autopay?'#34d39930':'rgba(148,163,184,.16)'};">${b.autopay?'Autopay on':'Autopay off'}</span>`,
     ];
     const btnBase='display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:6px;font-size:11px;font-family:inherit;cursor:pointer;';
-    const bLink=bankLink(b.bank);
+    const bLink=resolveBankLink(b);
     return `<div data-expanded="1" style="border-top:1px solid rgba(148,163,184,.10);padding:10px 14px 12px;background:#070b14;animation:pop .15s ease;">
       <div style="display:flex;border:1px solid rgba(148,163,184,.16);border-radius:8px;overflow:hidden;margin-bottom:10px;">
         <div style="flex:1;padding:8px 12px;">
@@ -1254,6 +1262,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           ${field('DUE DAY (1–31)',`<input type="number" min="1" max="31" data-act="ef-dueday" data-focus-key="ef-dueday" value="${eb.dueDay==null?'':eb.dueDay}" placeholder="—" class="ef" />`)}
           ${field('PLANNED (per check)',`<input type="number" min="0" step="0.01" data-act="ef-planned" data-focus-key="ef-planned" value="${eb.planned}" class="ef" />`)}
         </div>
+        ${field('BANK LINK (optional override)',`<input type="url" data-act="ef-bankurl" data-focus-key="ef-bankurl" value="${escAttr(eb.bankUrl||'')}" placeholder="${escAttr((bankLink(eb.bank)||{}).url||'e.g. https://bank.com/login')}" class="ef" />`)}
         <div style="display:flex;gap:16px;margin-top:8px;margin-bottom:6px;flex-wrap:wrap;">
           <div data-act="ef-autopay-toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;">
             ${toggleSwitch(eb.autopay,'ef-autopay-toggle',null,'#34d399')}
@@ -1614,6 +1623,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='modal-status') el.onchange=e=>{ const eb=state.editingBill; if(!eb||eb.id==null) return; const b=state.bills.find(bb=>bb.id===eb.id); if(!b) return; const v=e.target.value; if(v==='archived'){ b.archived=true; b.manualActive=false; } else { b.archived=false; b.manualActive=v==='active'; } eb.archived=b.archived; eb.manualActive=b.manualActive; state.expandedIds.delete(b.id); render(); };
       else if(act==='ef-name') el.oninput=e=>updEditField('name',e.target.value);
       else if(act==='ef-bank') el.oninput=e=>updEditField('bank',e.target.value);
+      else if(act==='ef-bankurl') el.oninput=e=>updEditField('bankUrl',e.target.value);
       else if(act==='ef-type') el.onchange=e=>updEditField('type',e.target.value);
       else if(act==='ef-freq') el.onchange=e=>updEditField('frequency',e.target.value);
       else if(act==='ef-amount') el.onchange=e=>updEditField('baseAmount',Number(e.target.value)||0);
