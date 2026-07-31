@@ -2354,6 +2354,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     renderCardsTab();
     showToast(appliedCount ? `✓ Applied import to ${appliedCount} card${appliedCount===1?'':'s'}` : 'Nothing applied — all accounts skipped', appliedCount?'#34d399':'#8b96a8');
   }
+  /* A suggested new balance that's wildly larger than the card's current balance almost
+     always means the file's date range overlaps activity already baked into that current
+     balance (e.g. a full multi-year export instead of "since last statement") — flag it
+     loudly rather than let a quiet date-span note be the only signal. */
+  function outrageousBalanceJump(oldBal, newBal){
+    const jump=newBal-oldBal;
+    return (oldBal>0 && newBal>oldBal*3 && jump>300) ? jump : null;
+  }
   function csvImportReviewHtml(){
     const ui=cardsImportUi;
     if(!ui) return '';
@@ -2367,14 +2375,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     let body;
     if(isSummary){
       const rows=ui.groups.map(g=>{
-        const label=g.action==='skip' ? 'Skip — no changes' : g.action==='create' ? 'Create new card' : `Match to ${escHtml((app.cards.find(c=>c.id===g.action)||{}).name||'')}`;
+        const matchedCard=(g.action!=='skip'&&g.action!=='create') ? app.cards.find(c=>c.id===g.action) : null;
+        const label=g.action==='skip' ? 'Skip — no changes' : g.action==='create' ? 'Create new card' : `Match to ${escHtml((matchedCard||{}).name||'')}`;
         const balTxt=g.action==='skip' ? '' : `$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}`;
+        const jumpAmt=matchedCard ? outrageousBalanceJump(Number(matchedCard.balance)||0, Number(g.balanceOverride)||0) : null;
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.12);">
           <div>
             <div style="font-size:12px;color:#fff;">${escHtml(g.key)}</div>
             <div style="font-size:9px;color:${g.action==='skip'?'#5b6577':'#8b96a8'};margin-top:2px;">${label}</div>
+            ${jumpAmt!=null?`<div style="font-size:9px;color:#f87171;margin-top:2px;">⚠ +$${jumpAmt.toLocaleString(undefined,{maximumFractionDigits:0})} jump — double-check before confirming</div>`:''}
           </div>
-          <div style="font-size:12px;color:${g.action==='skip'?'#5b6577':'#e8b565'};font-weight:600;flex-shrink:0;">${balTxt}</div>
+          <div style="font-size:12px;color:${jumpAmt!=null?'#f87171':(g.action==='skip'?'#5b6577':'#e8b565')};font-weight:600;flex-shrink:0;">${balTxt}</div>
         </div>`;
       }).join('');
       const activeCount=ui.groups.filter(g=>g.action!=='skip').length;
@@ -2395,22 +2406,23 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const notCard=g.accountType && !looksLikeCreditCardType(g.accountType);
       const matchedCard=(g.action!=='skip'&&g.action!=='create') ? app.cards.find(c=>c.id===g.action) : null;
 
-      let compareHtml;
+      let compareHtml, jumpAmt=null;
       if(g.action==='skip'){
         compareHtml=`<div style="padding:14px;border:1px dashed rgba(148,163,184,.25);border-radius:10px;text-align:center;font-size:10px;color:#5b6577;margin-top:10px;">This account will be skipped — nothing will change.</div>`;
       } else if(matchedCard){
         const oldBal=Number(matchedCard.balance)||0;
         const already=g.transactions.length-g.newCount;
+        jumpAmt=outrageousBalanceJump(oldBal, Number(g.balanceOverride)||0);
         compareHtml=`
-          <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-top:10px;">
+          <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border:1px solid ${jumpAmt!=null?'#f8717155':'rgba(148,163,184,.14)'};border-radius:10px;margin-top:10px;">
             <div style="text-align:center;">
               <div style="font-size:9px;color:#5b6577;letter-spacing:.08em;">CURRENT</div>
               <div style="font-size:16px;color:#5b6577;text-decoration:line-through;margin-top:3px;">$${oldBal.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
             </div>
             <div style="font-size:16px;color:#5b6577;">→</div>
             <div style="text-align:center;">
-              <div style="font-size:9px;color:#e8b565;letter-spacing:.08em;">NEW BALANCE</div>
-              <div style="font-size:18px;color:#fff;font-weight:700;margin-top:3px;">$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+              <div style="font-size:9px;color:${jumpAmt!=null?'#f87171':'#e8b565'};letter-spacing:.08em;">NEW BALANCE</div>
+              <div style="font-size:18px;color:${jumpAmt!=null?'#f87171':'#fff'};font-weight:700;margin-top:3px;">$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
             </div>
           </div>
           <div style="text-align:center;font-size:9px;color:#8b96a8;margin-top:6px;">${g.newCount} new transaction${g.newCount===1?'':'s'}${already>0?` · ${already} already on file (skipped)`:''}</div>`;
@@ -2442,6 +2454,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         ${g.accountType?`<div style="font-size:9px;color:#5b6577;margin-top:2px;">${escHtml(g.accountType)}</div>`:''}
         ${notCard?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">Detected as ${escHtml(g.accountType)}, not a credit card — defaulted to Skip</div>`:''}
         ${g.action!=='skip'&&g.dateSpanDays>45?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">⚠ This file spans ${g.dateSpanDays} days — if older activity isn't included, the suggested balance may not match today's real balance. Double-check before applying.</div>`:''}
+        ${jumpAmt!=null?`<div style="font-size:10.5px;color:#f87171;background:#f8717114;border:1px solid #f8717155;border-radius:8px;padding:9px 11px;margin-top:8px;line-height:1.5;">🚫 That's a $${jumpAmt.toLocaleString(undefined,{maximumFractionDigits:2})} jump from the current balance — way more than normal card activity. This almost always means the file's date range overlaps transactions already counted in that balance. Narrow the export to since your last statement, or set the balance manually.</div>`:''}
         ${compareHtml}
         <div style="margin-top:14px;">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:4px;">ACTION FOR THIS ACCOUNT</div>
