@@ -2100,6 +2100,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const n=(name||'').toLowerCase();
     return PAYMENT_KEYWORDS.some(k=>n.includes(k));
   }
+  /* Same reasoning as PAYMENT_KEYWORDS above: a refund/credit needs to net against
+     its original spend category (a returned purchase should bring that category's
+     total back down), but the CSV's +/- sign isn't a reliable signal for "this row
+     is a credit" across export tools — some report all amounts as positive
+     magnitudes regardless of direction, others flip sign conventions between
+     purchases and credits. Keyword-matched instead, kept in the transaction's
+     normal category (not a separate bucket) so it nets out where it belongs. */
+  const REFUND_KEYWORDS = ['refund','return','credit adjustment','credit adj','reversal','chargeback','credit memo','purchase credit','merchandise credit','price adjustment'];
+  function isRefundTx(name){
+    const n=(name||'').toLowerCase();
+    return REFUND_KEYWORDS.some(k=>n.includes(k));
+  }
   const SPEND_CAT_KEYWORDS = {
     Amazon:['amazon','whole foods'],
     Groceries:['safeway','kroger','vons','ralphs','trader joe','aldi','walmart','target','sprouts','grocery','market','food'],
@@ -2190,7 +2202,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     });
     return found ? found.id : null;
   }
-  function txNetAmount(t){ return t.category==='Payment' ? -t.amount : t.amount; }
+  // A row that reduces balance/spend rather than adding to it — a bill payment
+  // (its own category) or a refund/credit (kept in its original spend category,
+  // netted via this check everywhere category totals are summed).
+  function isCreditTx(t){ return t.category==='Payment'||!!t.isRefund; }
+  function txNetAmount(t){ return isCreditTx(t) ? -t.amount : t.amount; }
   function recomputeGroupSuggestion(g){
     if(g.action==='skip'){ g.newCount=0; g.balanceOverride=0; return; }
     if(g.action==='create'){
@@ -2216,11 +2232,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   let csvImportTargetCardId = null; // set by startImportSingleCard(); consumed once by the next handleCsvFile() call
   function buildImportGroup(key, transactions, initialAction){
     const accountType=transactions[0].accountType||'';
-    const totalPurchases=Math.round(transactions.filter(t=>t.category!=='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
+    const totalPurchases=Math.round(transactions.filter(t=>t.category!=='Payment'&&!t.isRefund).reduce((s,t)=>s+t.amount,0)*100)/100;
     const totalPayments=Math.round(transactions.filter(t=>t.category==='Payment').reduce((s,t)=>s+t.amount,0)*100)/100;
+    const totalRefunds=Math.round(transactions.filter(t=>t.isRefund).reduce((s,t)=>s+t.amount,0)*100)/100;
     const dates=transactions.map(t=>new Date(t.date).getTime()).filter(t=>!isNaN(t));
     const dateSpanDays=dates.length>=2?Math.round((Math.max(...dates)-Math.min(...dates))/86400000):0;
-    const g={ key, accountType, totalPurchases, totalPayments, dateSpanDays, transactions, action:initialAction, newCount:0, balanceOverride:0 };
+    const g={ key, accountType, totalPurchases, totalPayments, totalRefunds, dateSpanDays, transactions, action:initialAction, newCount:0, balanceOverride:0 };
     recomputeGroupSuggestion(g);
     return g;
   }
@@ -2232,7 +2249,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     reader.onload=e=>{
       const parsed=csvToObjects(e.target.result).map(normalizeTxRow)
         .filter(t=>t.name&&t.amount>0)
-        .map(t=>({ ...t, category: isPaymentTx(t.name) ? 'Payment' : ((t.category&&t.category.length>1)?t.category:categorizeTx(t.name)) }))
+        .map(t=>{
+          const isPmt=isPaymentTx(t.name);
+          const category=isPmt ? 'Payment' : ((t.category&&t.category.length>1)?t.category:categorizeTx(t.name));
+          return { ...t, category, isRefund: !isPmt && isRefundTx(t.name) };
+        })
         .map(t=>({ ...t, id:txId(t) }));
       if(!parsed.length){ showToast('✗ No transactions found — check Date/Name/Amount columns','#f87171'); return; }
       let groups;
@@ -2358,7 +2379,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           <div style="padding:14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-top:10px;text-align:center;">
             <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">NEW CARD — STARTING BALANCE</div>
             <div style="font-size:18px;color:#fff;font-weight:700;margin-top:5px;">$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
-            <div style="font-size:9px;color:#8b96a8;margin-top:6px;">Purchases $${g.totalPurchases.toLocaleString(undefined,{maximumFractionDigits:2})}${g.totalPayments?` − payments $${g.totalPayments.toLocaleString(undefined,{maximumFractionDigits:2})}`:''}</div>
+            <div style="font-size:9px;color:#8b96a8;margin-top:6px;">Purchases $${g.totalPurchases.toLocaleString(undefined,{maximumFractionDigits:2})}${g.totalPayments?` − payments $${g.totalPayments.toLocaleString(undefined,{maximumFractionDigits:2})}`:''}${g.totalRefunds?` − refunds $${g.totalRefunds.toLocaleString(undefined,{maximumFractionDigits:2})}`:''}</div>
           </div>`;
       }
 
@@ -2369,7 +2390,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid rgba(148,163,184,.08);font-size:10px;">
               <div style="color:#c7cfdb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${escHtml(t.name)}</div>
               <div style="color:#5b6577;flex-shrink:0;">${escHtml(t.date||'')}</div>
-              <div style="color:${t.category==='Payment'?'#34d399':'#e8b565'};flex-shrink:0;font-weight:600;">${t.category==='Payment'?'−':''}$${Number(t.amount).toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+              <div style="color:${isCreditTx(t)?'#34d399':'#e8b565'};flex-shrink:0;font-weight:600;">${isCreditTx(t)?'−':''}$${Number(t.amount).toLocaleString(undefined,{maximumFractionDigits:2})}</div>
             </div>`).join('')}
         </div>` : '';
 
@@ -2516,7 +2537,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const transactions=c.transactions||[];
     if(!transactions.length) return '';
     const byCat={};
-    transactions.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+t.amount; });
+    transactions.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+(t.isRefund?-t.amount:t.amount); });
     const catEntries=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
     const catTotal=catEntries.reduce((s,[,v])=>s+v,0);
     const colorMap=categoryColorMap(catEntries.map(([cat])=>cat));
@@ -2539,16 +2560,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     `:'';
 
     const rows=transactions.map(t=>{
-      const isPmt=t.category==='Payment';
+      const credit=isCreditTx(t);
       const color=colorMap[t.category]||SPEND_CAT_COLOR[t.category]||'#8b96a8';
       return `
       <div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:11.5px;">
         <div style="flex:1;min-width:0;">
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
-          <div style="font-size:9.5px;color:#5b6577;margin-top:1px;">${escHtml(t.date)}</div>
+          <div style="font-size:9.5px;color:#5b6577;margin-top:1px;">${escHtml(t.date)}${t.isRefund?' · Refund':''}</div>
         </div>
         <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:${color}22;color:${color};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
-        <span style="flex-shrink:0;color:${isPmt?'#34d399':'#eef2f8'};">${isPmt?'−':''}$${t.amount.toFixed(2)}</span>
+        <span style="flex-shrink:0;color:${credit?'#34d399':'#eef2f8'};">${credit?'−':''}$${t.amount.toFixed(2)}</span>
       </div>`;
     }).join('');
 
@@ -2930,7 +2951,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     allSpendTx().forEach(t=>{
       const mk=txMonthKey(t); if(!mk) return;
       if(!byMonth[mk]) byMonth[mk]={};
-      byMonth[mk][t.category]=(byMonth[mk][t.category]||0)+t.amount;
+      // A refund nets against its own category's total for the month (a returned
+      // purchase should bring that category back down) rather than getting
+      // counted as more spend or dropped into a separate bucket.
+      byMonth[mk][t.category]=(byMonth[mk][t.category]||0)+(t.isRefund?-t.amount:t.amount);
     });
     return { months:Object.keys(byMonth).sort(), byMonth };
   }
@@ -2968,6 +2992,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function detectRecurringCharges(){
     const groups={};
     allSpendTx().forEach(t=>{
+      if(t.isRefund) return; // a refund isn't a fixed recurring charge, even if it shares a merchant name
       const key=normalizeMerchantKey(t.name);
       if(!key) return;
       (groups[key]=groups[key]||[]).push(t);
@@ -3123,21 +3148,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     }
     all.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     const byCat={};
-    all.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+t.amount; });
+    all.forEach(t=>{ if(t.category==='Payment') return; byCat[t.category]=(byCat[t.category]||0)+(t.isRefund?-t.amount:t.amount); });
     const catChips=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,tot])=>
       `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#8b96a8;margin:2px 10px 2px 0;"><span style="width:6px;height:6px;border-radius:2px;background:${SPEND_CAT_COLOR[cat]||'#8b96a8'};"></span>${escHtml(cat)} $${tot.toFixed(0)}</span>`
     ).join('');
     const shown = all.slice(0,200);
     const rows = shown.map(t=>{
-      const isPmt=t.category==='Payment';
+      const credit=isCreditTx(t);
       return `
       <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:11px;">
         <div style="flex:1;min-width:0;">
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
-          <div style="font-size:9px;color:#5b6577;">${escHtml(t.date)} · ${escHtml(t.cardName)}</div>
+          <div style="font-size:9px;color:#5b6577;">${escHtml(t.date)} · ${escHtml(t.cardName)}${t.isRefund?' · Refund':''}</div>
         </div>
         <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${SPEND_CAT_COLOR[t.category]||'#8b96a8'}18;color:${SPEND_CAT_COLOR[t.category]||'#8b96a8'};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
-        <span style="color:${isPmt?'#34d399':'#eef2f8'};flex-shrink:0;">${isPmt?'-':''}$${t.amount.toFixed(2)}</span>
+        <span style="color:${credit?'#34d399':'#eef2f8'};flex-shrink:0;">${credit?'-':''}$${t.amount.toFixed(2)}</span>
       </div>`;
     }).join('');
     return `
