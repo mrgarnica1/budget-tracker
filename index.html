@@ -89,9 +89,38 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 <script>
 (function(){
 
-  /* ── PIN lock ──────────────────────────────────────────────── */
-  const PIN_CODE = '5247';
+  /* ── Device gate: Google Sign-In once, then a local PIN/Face ID ───────────
+     A hardcoded PIN sitting in this file is worthless as a lock on a public
+     GitHub Pages repo — anyone reading the source has it. Google Sign-In
+     (checked against AUTHORIZED_EMAILS) verifies a device once; after that,
+     a PIN chosen by the user and stored only as a local hash unlocks
+     quickly, same feel as before. The two layers are independent: signing
+     out of cloud sync later doesn't revoke device trust, and vice versa. An
+     email address living in this public file is fine — unlike a PIN, it
+     grants nothing on its own; only actually authenticating as that Google
+     account does. */
+  const AUTHORIZED_EMAILS = ['mr.garnica1@gmail.com'];
+  const DEVICE_TRUST_KEY = 'budget-tracker-device-trust-v1';
+  const PIN_HASH_KEY = 'budget-tracker-pin-hash-v1';
   const PIN_SESSION_KEY = 'budget-tracker-pin-v1';
+  function isAuthorizedEmail(email){ return !!email && AUTHORIZED_EMAILS.includes(email.toLowerCase()); }
+  function deviceTrusted(){ return localStorage.getItem(DEVICE_TRUST_KEY)==='1'; }
+  async function sha256Hex(text){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  async function pinMatches(candidate){
+    const stored = localStorage.getItem(PIN_HASH_KEY);
+    return !!stored && (await sha256Hex(candidate))===stored;
+  }
+  async function setLocalPin(candidate){ localStorage.setItem(PIN_HASH_KEY, await sha256Hex(candidate)); }
+  // Bridges the async Google popup/redirect flow (handled by the existing
+  // onAuthStateChanged listener in initCloud()) back to whichever gate
+  // screen triggered it. Cleared the instant it's read, so it only ever
+  // reacts to the sign-in it was set for, not to later unrelated auth
+  // changes (token refresh, a later manual sign-out, etc.).
+  let pendingGateCallback = null;
+  function unlockNow(){ sessionStorage.setItem(PIN_SESSION_KEY,'1'); document.onkeydown=null; loadApp(); renderApp(); }
 
   /* ── Face ID / Touch ID unlock (WebAuthn platform authenticator) ──────────
      Local-device gate only — there's no backend here to verify a signature
@@ -135,6 +164,32 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       }});
       return !!assertion;
     } catch(e){ return false; }
+  }
+
+  // Shared by the fast-unlock PIN screen and the first-time PIN-setup screen
+  // (both offer to enroll Face ID right after a successful PIN entry) —
+  // takes the "what to do once we're done" step as a callback rather than
+  // hardcoding unlockNow(), since setup has one extra step (saving the PIN)
+  // that the fast-unlock path doesn't.
+  function showFaceIdPrompt(onDone){
+    localStorage.setItem(WEBAUTHN_PROMPTED_KEY,'1');
+    const root = document.getElementById('root');
+    root.innerHTML += `
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;">
+        <div style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:14px;padding:24px;max-width:320px;width:100%;text-align:center;">
+          <div style="font-size:32px;margin-bottom:10px;">🙂</div>
+          <div class="syne" style="font-size:16px;color:#fff;margin-bottom:8px;">Enable Face ID?</div>
+          <div style="font-size:12px;color:#8b96a8;line-height:1.5;margin-bottom:20px;">Unlock faster next time using this device's Face ID or Touch ID. Your PIN will still work as a backup.</div>
+          <button id="faceid-prompt-enable" style="width:100%;background:#22d3ee;border:none;color:#04121f;font-weight:700;padding:11px;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;margin-bottom:8px;">Enable Face ID</button>
+          <button id="faceid-prompt-skip" style="width:100%;background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:11px;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;">Not Now</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('faceid-prompt-enable').onclick = async () => {
+      try{ await enrollFaceId(); showToast('✓ Face ID enabled','#34d399'); } catch(e){ showToast('✗ Could not enable Face ID','#f87171'); }
+      onDone();
+    };
+    document.getElementById('faceid-prompt-skip').onclick = () => onDone();
   }
 
   function showPinScreen() {
@@ -216,38 +271,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       if(entered.length===4) setTimeout(checkPin, 120);
     }
 
-    function unlockNow(){
-      sessionStorage.setItem(PIN_SESSION_KEY,'1');
-      document.onkeydown=null;
-      loadApp();
-      renderApp();
-    }
-
-    function showFaceIdPrompt(){
-      localStorage.setItem(WEBAUTHN_PROMPTED_KEY,'1');
-      const root = document.getElementById('root');
-      root.innerHTML += `
-        <div style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;">
-          <div style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:14px;padding:24px;max-width:320px;width:100%;text-align:center;">
-            <div style="font-size:32px;margin-bottom:10px;">🙂</div>
-            <div class="syne" style="font-size:16px;color:#fff;margin-bottom:8px;">Enable Face ID?</div>
-            <div style="font-size:12px;color:#8b96a8;line-height:1.5;margin-bottom:20px;">Unlock faster next time using this device's Face ID or Touch ID. Your PIN will still work as a backup.</div>
-            <button id="faceid-prompt-enable" style="width:100%;background:#22d3ee;border:none;color:#04121f;font-weight:700;padding:11px;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;margin-bottom:8px;">Enable Face ID</button>
-            <button id="faceid-prompt-skip" style="width:100%;background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:11px;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;">Not Now</button>
-          </div>
-        </div>
-      `;
-      document.getElementById('faceid-prompt-enable').onclick = async () => {
-        try{ await enrollFaceId(); showToast('✓ Face ID enabled','#34d399'); } catch(e){ showToast('✗ Could not enable Face ID','#f87171'); }
-        unlockNow();
-      };
-      document.getElementById('faceid-prompt-skip').onclick = () => unlockNow();
-    }
-
-    function checkPin() {
-      if(entered===PIN_CODE){
+    async function checkPin() {
+      if(await pinMatches(entered)){
         document.onkeydown=null;
-        if(webauthnPlatformAvailable && !faceIdEnrolled() && !localStorage.getItem(WEBAUTHN_PROMPTED_KEY)) showFaceIdPrompt();
+        if(webauthnPlatformAvailable && !faceIdEnrolled() && !localStorage.getItem(WEBAUTHN_PROMPTED_KEY)) showFaceIdPrompt(unlockNow);
         else unlockNow();
       } else {
         const dots=document.getElementById('pin-dots');
@@ -263,6 +290,135 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     renderPin();
     if(faceIdEnrolled()) attemptFaceUnlock(true);
+  }
+
+  // First-time device verification: sign in with Google, checked against
+  // AUTHORIZED_EMAILS by the onAuthStateChanged listener in initCloud(),
+  // which resolves pendingGateCallback once the result is known.
+  function showGoogleGateScreen(){
+    let busy = false;
+    let errorMsg = '';
+
+    function render(){
+      const root = document.getElementById('root');
+      root.innerHTML = `
+        <div style="min-height:100vh;background:#070b14;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;text-align:center;">
+          <div style="width:56px;height:56px;border-radius:50%;border:2px solid #22d3ee;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">
+            <svg width="20" height="24" viewBox="0 0 20 24" fill="none" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="10" width="18" height="13" rx="2"/>
+              <path d="M5 10V7a5 5 0 0 1 10 0v3"/>
+              <circle cx="10" cy="16.5" r="1.5" fill="#22d3ee" stroke="none"/>
+            </svg>
+          </div>
+          <div class="syne" style="font-size:20px;color:#fff;margin-bottom:5px;">BUDGET <span class="grad-text">TRACKER</span></div>
+          <div style="font-size:10px;color:#8b96a8;letter-spacing:.14em;margin-bottom:8px;">NEW DEVICE</div>
+          <div style="font-size:12px;color:#8b96a8;line-height:1.6;max-width:280px;margin-bottom:28px;">Sign in with Google once to verify this device. After that you'll unlock with a fast PIN.</div>
+          <button data-act="gate-google" ${busy?'disabled':''} style="display:flex;align-items:center;gap:10px;background:#101827;border:1px solid rgba(148,163,184,.22);color:#eef2f8;padding:12px 22px;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer;opacity:${busy?'0.6':'1'};">
+            <svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.53 5.53 0 0 1-2.4 3.63v3h3.88c2.27-2.09 3.57-5.17 3.57-8.82z"/><path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.95-2.9l-3.88-3.02c-1.08.73-2.46 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.12A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54V6.61H1.27a12 12 0 0 0 0 10.78z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.27 6.61l4 3.12C6.22 6.87 8.87 4.75 12 4.75z"/></svg>
+            ${busy?'Signing in…':'Sign in with Google'}
+          </button>
+          ${errorMsg?`<div style="margin-top:16px;font-size:11px;color:#f87171;max-width:280px;">${escHtml(errorMsg)}</div>`:''}
+          <button data-act="gate-reset" style="margin-top:24px;background:transparent;border:none;color:#3a4354;font-family:inherit;font-size:10px;cursor:pointer;">Wrong account signed in? Reset</button>
+        </div>
+      `;
+      const btn = document.querySelector('[data-act="gate-google"]');
+      if(btn) btn.onclick = handleSignIn;
+      const resetBtn = document.querySelector('[data-act="gate-reset"]');
+      if(resetBtn) resetBtn.onclick = () => { if(cloudReady) firebase.auth().signOut(); errorMsg=''; render(); };
+    }
+
+    function handleSignIn(){
+      if(busy) return;
+      if(!cloudReady){ errorMsg='No connection to Google — check your network and try again.'; render(); return; }
+      busy = true; errorMsg=''; render();
+      pendingGateCallback = (ok, msg) => {
+        busy = false;
+        if(ok) showSetPinScreen();
+        else { errorMsg = msg || 'This Google account is not authorized.'; render(); }
+      };
+      signInCloud();
+    }
+
+    render();
+  }
+
+  // Runs once, right after showGoogleGateScreen() confirms an authorized
+  // Google account — picks a local PIN (entered twice to confirm) and
+  // hashes it into PIN_HASH_KEY, then marks this device trusted so future
+  // opens go straight to the fast showPinScreen() instead of back through
+  // Google Sign-In.
+  function showSetPinScreen(){
+    let stage = 'create'; // 'create' → 'confirm'
+    let firstPin = '';
+    let entered = '';
+
+    function render(){
+      const root = document.getElementById('root');
+      root.innerHTML = `
+        <div style="min-height:100vh;background:#070b14;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;font-family:-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;user-select:none;">
+          <div style="width:56px;height:56px;border-radius:50%;border:2px solid #34d399;display:flex;align-items:center;justify-content:center;margin-bottom:20px;">
+            <svg width="20" height="24" viewBox="0 0 20 24" fill="none" stroke="#34d399" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1" y="10" width="18" height="13" rx="2"/>
+              <path d="M5 10V7a5 5 0 0 1 10 0v3"/>
+              <circle cx="10" cy="16.5" r="1.5" fill="#34d399" stroke="none"/>
+            </svg>
+          </div>
+          <div class="syne" style="font-size:20px;color:#fff;margin-bottom:5px;">BUDGET <span class="grad-text">TRACKER</span></div>
+          <div style="font-size:10px;color:#8b96a8;letter-spacing:.14em;margin-bottom:40px;">${stage==='create'?'SET A PIN':'CONFIRM PIN'}</div>
+          <div id="pin-dots" style="display:flex;gap:16px;margin-bottom:44px;">
+            ${[0,1,2,3].map(i=>`
+              <div style="width:13px;height:13px;border-radius:50%;background:${i<entered.length?'#34d399':'transparent'};border:2px solid ${i<entered.length?'#34d399':'#3a4354'};transition:all .12s;${i<entered.length?'animation:pin-pop .15s ease;':''}"></div>
+            `).join('')}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(3,76px);gap:10px;">
+            ${['1','2','3','4','5','6','7','8','9','','0','⌫'].map(k=>
+              k===''
+                ? `<div></div>`
+                : `<button data-key="${k}" style="width:76px;height:76px;border-radius:50%;background:#101827;border:1px solid rgba(148,163,184,.14);color:#eef2f8;font-family:inherit;font-size:${k==='⌫'?'18':'22'}px;cursor:pointer;-webkit-tap-highlight-color:transparent;outline:none;" onpointerdown="this.style.background='rgba(148,163,184,.18)'" onpointerup="this.style.background='#101827'" onpointerleave="this.style.background='#101827'">${k}</button>`
+            ).join('')}
+          </div>
+          <div id="pin-error" style="margin-top:28px;font-size:10px;color:#f87171;letter-spacing:.12em;min-height:14px;opacity:0;transition:opacity .15s;"></div>
+        </div>
+      `;
+      document.querySelectorAll('[data-key]').forEach(btn=>{ btn.onclick=()=>handleKey(btn.dataset.key); });
+      document.onkeydown=e=>{
+        if(/^[0-9]$/.test(e.key)) handleKey(e.key);
+        else if(e.key==='Backspace') handleKey('⌫');
+      };
+    }
+
+    function handleKey(key){
+      if(key==='⌫'){ entered=entered.slice(0,-1); render(); return; }
+      if(entered.length>=4) return;
+      entered+=key;
+      render();
+      if(entered.length===4) setTimeout(advance, 150);
+    }
+
+    async function advance(){
+      if(stage==='create'){
+        firstPin=entered; entered=''; stage='confirm'; render();
+        return;
+      }
+      if(entered===firstPin){
+        document.onkeydown=null;
+        await setLocalPin(entered);
+        localStorage.setItem(DEVICE_TRUST_KEY,'1');
+        if(webauthnPlatformAvailable && !faceIdEnrolled() && !localStorage.getItem(WEBAUTHN_PROMPTED_KEY)) showFaceIdPrompt(unlockNow);
+        else unlockNow();
+      } else {
+        const dots=document.getElementById('pin-dots');
+        const err=document.getElementById('pin-error');
+        if(dots){
+          dots.style.animation='shake .35s ease';
+          dots.querySelectorAll('div').forEach(d=>{ d.style.background='#f87171'; d.style.borderColor='#f87171'; });
+        }
+        if(err){ err.textContent="PINS DIDN'T MATCH — TRY AGAIN"; err.style.opacity='1'; }
+        setTimeout(()=>{ firstPin=''; entered=''; stage='create'; render(); }, 750);
+      }
+    }
+
+    render();
   }
 
   /* ── Initial bill template ─────────────────────────────────── */
@@ -524,6 +680,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       firebase.initializeApp(FIREBASE_CONFIG);
       cloudReady = true;
       firebase.auth().onAuthStateChanged(user => {
+        // Reject any Google account outside AUTHORIZED_EMAILS outright — sign
+        // back out immediately rather than let it through to an empty/wrong
+        // Firestore doc. This re-triggers the listener with user=null, which
+        // falls through to the normal signed-out path below.
+        if (user && !isAuthorizedEmail(user.email)) {
+          firebase.auth().signOut();
+          const cb = pendingGateCallback; pendingGateCallback = null;
+          if (cb) cb(false, `"${user.email}" isn't authorized on this app.`);
+          else showToast(`✗ "${user.email}" isn't authorized`, '#f87171');
+          return;
+        }
         cloudUser = user;
         if (cloudUnsub) { cloudUnsub(); cloudUnsub = null; }
         cloudDoc = null;
@@ -539,6 +706,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             if (!snap.exists) { seededDefaults = false; saveApp(); }
           }).catch(e => console.warn('Cloud seed check failed', e));
         }
+        if (pendingGateCallback && user) { const cb = pendingGateCallback; pendingGateCallback = null; cb(true); }
         if (sessionStorage.getItem(PIN_SESSION_KEY) === '1') renderApp();
       });
       // Complete a redirect-based sign-in (used on iOS standalone mode)
@@ -3674,14 +3842,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     migrateCardFields();
     migrateLoanFields();
     snapshotDailyHistory();
-    // Face ID must fire the instant the PIN screen mounts — any async wait here (even a
+    // Face ID must fire the instant its screen mounts — any async wait here (even a
     // fast local platform check) burns into the browser's transient-user-activation window
     // from opening the app, and some browsers refuse a non-gesture-backed WebAuthn call
     // once that window closes. Availability itself only gates the "Enable Face ID" opt-in
-    // link, which is safe to resolve in the background — renderPin() already re-reads it
+    // link, which is safe to resolve in the background — both screens below re-read it
     // on every keystroke, so the link appears as soon as it's ready without blocking unlock.
-    showPinScreen();
     initWebauthnAvailability();
+    if(deviceTrusted()) showPinScreen();
+    else showGoogleGateScreen();
   }
   initCloud();
 
