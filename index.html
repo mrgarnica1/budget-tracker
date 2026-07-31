@@ -2272,7 +2272,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const totalRefunds=Math.round(transactions.filter(t=>t.isRefund).reduce((s,t)=>s+t.amount,0)*100)/100;
     const dates=transactions.map(t=>new Date(t.date).getTime()).filter(t=>!isNaN(t));
     const dateSpanDays=dates.length>=2?Math.round((Math.max(...dates)-Math.min(...dates))/86400000):0;
-    const g={ key, accountType, totalPurchases, totalPayments, totalRefunds, dateSpanDays, transactions, action:initialAction, newCount:0, balanceOverride:0 };
+    const g={ key, accountType, totalPurchases, totalPayments, totalRefunds, dateSpanDays, transactions, action:initialAction, newCount:0, balanceOverride:0, keepBalance:false };
     recomputeGroupSuggestion(g);
     return g;
   }
@@ -2344,7 +2344,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         const existingTx=card.transactions||[];
         const fresh=g.transactions.filter(t=>!existingTx.some(e=>txsLikelyDuplicate(t,e)));
         card.transactions=[...fresh, ...(card.transactions||[])];
-        card.balance=Math.max(0,Number(g.balanceOverride)||0);
+        if(!g.keepBalance) card.balance=Math.max(0,Number(g.balanceOverride)||0);
         pushCardHistory(card);
         appliedCount++;
       }
@@ -2376,9 +2376,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(isSummary){
       const rows=ui.groups.map(g=>{
         const matchedCard=(g.action!=='skip'&&g.action!=='create') ? app.cards.find(c=>c.id===g.action) : null;
-        const label=g.action==='skip' ? 'Skip — no changes' : g.action==='create' ? 'Create new card' : `Match to ${escHtml((matchedCard||{}).name||'')}`;
-        const balTxt=g.action==='skip' ? '' : `$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}`;
-        const jumpAmt=matchedCard ? outrageousBalanceJump(Number(matchedCard.balance)||0, Number(g.balanceOverride)||0) : null;
+        const keepBalance=!!(matchedCard&&g.keepBalance);
+        const label=g.action==='skip' ? 'Skip — no changes' : g.action==='create' ? 'Create new card' : keepBalance ? `Match to ${escHtml((matchedCard||{}).name||'')} · transactions only` : `Match to ${escHtml((matchedCard||{}).name||'')}`;
+        const balTxt=g.action==='skip' ? '' : keepBalance ? `$${(Number(matchedCard.balance)||0).toLocaleString(undefined,{maximumFractionDigits:2})} (unchanged)` : `$${g.balanceOverride.toLocaleString(undefined,{maximumFractionDigits:2})}`;
+        const jumpAmt=(matchedCard&&!keepBalance) ? outrageousBalanceJump(Number(matchedCard.balance)||0, Number(g.balanceOverride)||0) : null;
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.12);">
           <div>
             <div style="font-size:12px;color:#fff;">${escHtml(g.key)}</div>
@@ -2412,8 +2413,13 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       } else if(matchedCard){
         const oldBal=Number(matchedCard.balance)||0;
         const already=g.transactions.length-g.newCount;
-        jumpAmt=outrageousBalanceJump(oldBal, Number(g.balanceOverride)||0);
-        compareHtml=`
+        jumpAmt=g.keepBalance ? null : outrageousBalanceJump(oldBal, Number(g.balanceOverride)||0);
+        compareHtml=g.keepBalance ? `
+          <div style="padding:14px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-top:10px;text-align:center;">
+            <div style="font-size:9px;color:#8b96a8;letter-spacing:.08em;">BALANCE — UNCHANGED</div>
+            <div style="font-size:18px;color:#fff;font-weight:700;margin-top:5px;">$${oldBal.toLocaleString(undefined,{maximumFractionDigits:2})}</div>
+            <div style="font-size:9px;color:#8b96a8;margin-top:6px;">${g.newCount} transaction${g.newCount===1?'':'s'} added for history only${already>0?` · ${already} already on file (skipped)`:''}</div>
+          </div>` : `
           <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:14px;border:1px solid ${jumpAmt!=null?'#f8717155':'rgba(148,163,184,.14)'};border-radius:10px;margin-top:10px;">
             <div style="text-align:center;">
               <div style="font-size:9px;color:#5b6577;letter-spacing:.08em;">CURRENT</div>
@@ -2454,13 +2460,17 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         ${g.accountType?`<div style="font-size:9px;color:#5b6577;margin-top:2px;">${escHtml(g.accountType)}</div>`:''}
         ${notCard?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">Detected as ${escHtml(g.accountType)}, not a credit card — defaulted to Skip</div>`:''}
         ${g.action!=='skip'&&g.dateSpanDays>45?`<div style="font-size:9px;color:#fbbf24;margin-top:6px;">⚠ This file spans ${g.dateSpanDays} days — if older activity isn't included, the suggested balance may not match today's real balance. Double-check before applying.</div>`:''}
-        ${jumpAmt!=null?`<div style="font-size:10.5px;color:#f87171;background:#f8717114;border:1px solid #f8717155;border-radius:8px;padding:9px 11px;margin-top:8px;line-height:1.5;">🚫 That's a $${jumpAmt.toLocaleString(undefined,{maximumFractionDigits:2})} jump from the current balance — way more than normal card activity. This almost always means the file's date range overlaps transactions already counted in that balance. Narrow the export to since your last statement, or set the balance manually.</div>`:''}
+        ${jumpAmt!=null?`<div style="font-size:10.5px;color:#f87171;background:#f8717114;border:1px solid #f8717155;border-radius:8px;padding:9px 11px;margin-top:8px;line-height:1.5;">🚫 That's a $${jumpAmt.toLocaleString(undefined,{maximumFractionDigits:2})} jump from the current balance — way more than normal card activity. This almost always means the file's date range overlaps transactions already counted in that balance. Narrow the export to since your last statement, check "Import transactions only" below, or set the balance manually.</div>`:''}
         ${compareHtml}
+        ${matchedCard?`<label style="display:flex;align-items:center;gap:9px;margin-top:10px;padding:9px 11px;border:1px solid rgba(148,163,184,.16);border-radius:8px;cursor:pointer;">
+          <input type="checkbox" data-act="import-keep-balance" data-group-key="${escAttr(g.key)}" ${g.keepBalance?'checked':''} style="width:15px;height:15px;accent-color:#e8b565;flex-shrink:0;" />
+          <span style="font-size:10.5px;color:#c7cfdb;line-height:1.4;">Import transactions only — keep the current balance ($${(Number(matchedCard.balance)||0).toLocaleString(undefined,{maximumFractionDigits:2})}) unchanged</span>
+        </label>`:''}
         <div style="margin-top:14px;">
           <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:4px;">ACTION FOR THIS ACCOUNT</div>
           <select data-act="import-map-select" data-group-key="${escAttr(g.key)}" class="ef" style="width:100%;">${opts}</select>
         </div>
-        ${g.action!=='skip'?field(g.action==='create'?'STARTING BALANCE (suggested — editable)':'NEW BALANCE (suggested — editable)', `<input type="number" step="0.01" data-act="import-balance-override" data-group-key="${escAttr(g.key)}" value="${g.balanceOverride}" class="ef" />`):''}
+        ${g.action!=='skip'&&!(matchedCard&&g.keepBalance)?field(g.action==='create'?'STARTING BALANCE (suggested — editable)':'NEW BALANCE (suggested — editable)', `<input type="number" step="0.01" data-act="import-balance-override" data-group-key="${escAttr(g.key)}" value="${g.balanceOverride}" class="ef" />`):''}
         ${txListHtml}
         <div style="display:flex;gap:8px;margin-top:14px;">
           ${step>0?`<button data-act="import-review-back" style="background:transparent;border:1px solid rgba(148,163,184,.22);color:#8b96a8;padding:8px 14px;border-radius:8px;font-size:11px;font-family:inherit;cursor:pointer;">← Back</button>`
@@ -2768,6 +2778,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='import-cards-csv') el.onclick=()=>startImportCardsCsv();
       else if(act==='import-map-select') el.onchange=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g){ g.action=e.target.value; recomputeGroupSuggestion(g); renderCardsTab(); } };
       else if(act==='import-balance-override') el.oninput=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g) g.balanceOverride=e.target.value===''?0:Number(e.target.value); };
+      else if(act==='import-keep-balance') el.onchange=e=>{ const key=el.dataset.groupKey; const g=cardsImportUi&&cardsImportUi.groups.find(g=>g.key===key); if(g){ g.keepBalance=e.target.checked; renderCardsTab(); } };
       else if(act==='import-review-bg') el.onclick=e=>{ if(e.target===el) cancelCsvImportReview(); };
       else if(act==='import-review-cancel') el.onclick=()=>cancelCsvImportReview();
       else if(act==='import-review-next') el.onclick=()=>importReviewNext();
