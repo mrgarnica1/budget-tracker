@@ -2153,12 +2153,31 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     return rows.slice(1).map(r=>{ const obj={}; headers.forEach((h,i)=>obj[h]=r[i]!==undefined?r[i]:''); return obj; });
   }
   function normalizeTxRow(row){
-    const get=names=>{ for(const n of names){ const k=Object.keys(row).find(k=>k.toLowerCase().trim()===n); if(k) return row[k]; } return ''; };
-    const amt=parseFloat((get(['amount','transaction amount','debit','credit'])||'0').replace(/[$,]/g,''))||0;
+    const findKey=names=>Object.keys(row).find(k=>names.includes(k.toLowerCase().trim()));
+    const get=names=>{ const k=findKey(names); return k!==undefined?row[k]:''; };
+    const num=v=>{ const n=parseFloat(String(v||'').replace(/[$,]/g,'')); return isNaN(n)?0:n; };
+    // Some exports use one signed "Amount" column; others split purchases and
+    // credits into separate "Debit"/"Credit" columns. The old single get(['amount',
+    // ...,'debit','credit']) call always resolved to whichever of those NAMES had a
+    // matching header first — so with a real Debit/Credit split, every credit row
+    // silently read the (blank) Debit cell as $0 and got dropped by the amount>0
+    // filter downstream, never even reaching refund detection.
+    const amountKey=findKey(['amount','transaction amount']);
+    const debitKey=findKey(['debit']), creditKey=findKey(['credit']);
+    let amt=0, explicitCredit=false;
+    if(amountKey!==undefined){
+      amt=num(row[amountKey]);
+    } else if(debitKey!==undefined||creditKey!==undefined){
+      const debitVal=debitKey!==undefined?num(row[debitKey]):0;
+      const creditVal=creditKey!==undefined?num(row[creditKey]):0;
+      if(debitVal!==0) amt=debitVal;
+      else if(creditVal!==0){ amt=creditVal; explicitCredit=true; }
+    }
     return {
       date: get(['date','transaction date','posted date']),
       name: get(['name','description','merchant','payee','transaction description']),
       amount: Math.abs(amt),
+      explicitCredit,
       category: get(['category','merchant category','type']),
       account: get(['account name','account','account nickname','institution name','institution','card name','card']),
       accountType: get(['account type','type of account']),
@@ -2178,6 +2197,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     return true;
   }
   function txId(t){ return `${t.date}|${t.name}|${t.amount}`; }
+  // Exact txId match first (the common case, and the cheapest). Beyond that, the
+  // same real-world charge often shows up under a slightly different date in two
+  // exports — a card's "pending" listing vs. its later "posted" one — so a second
+  // pass treats same-merchant, same-exact-amount rows within 3 days of each other
+  // as the same transaction too. Amount is never fuzzed: it's the strongest anti
+  // false-positive signal, and loosening it risks silently dropping a real,
+  // separate purchase that happens to cost the same as a recent one.
+  function txsLikelyDuplicate(a,b){
+    if(txId(a)===txId(b)) return true;
+    if(a.amount!==b.amount) return false;
+    const keyA=normalizeMerchantKey(a.name);
+    if(!keyA||keyA!==normalizeMerchantKey(b.name)) return false;
+    const da=new Date(a.date).getTime(), db=new Date(b.date).getTime();
+    if(isNaN(da)||isNaN(db)) return false;
+    return Math.abs(da-db)<=3*86400000;
+  }
   function ensureCsvFileInput(){
     if(document.getElementById('csv-file-input')) return;
     const input=document.createElement('input');
@@ -2222,8 +2257,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     }
     const card=app.cards.find(c=>c.id===g.action);
     if(!card){ g.action='create'; recomputeGroupSuggestion(g); return; }
-    const existingIds=new Set((card.transactions||[]).map(txId));
-    const fresh=g.transactions.filter(t=>!existingIds.has(txId(t)));
+    const existingTx=card.transactions||[];
+    const fresh=g.transactions.filter(t=>!existingTx.some(e=>txsLikelyDuplicate(t,e)));
     g.newCount=fresh.length;
     const net=fresh.reduce((s,t)=>s+txNetAmount(t),0);
     g.balanceOverride=Math.max(0,Math.round(((Number(card.balance)||0)+net)*100)/100);
@@ -2252,7 +2287,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         .map(t=>{
           const isPmt=isPaymentTx(t.name);
           const category=isPmt ? 'Payment' : ((t.category&&t.category.length>1)?t.category:categorizeTx(t.name));
-          return { ...t, category, isRefund: !isPmt && isRefundTx(t.name) };
+          // A file-structural Debit/Credit split is a more reliable "this is a
+          // credit" signal than guessing from the description, so it takes
+          // priority over the keyword match when present.
+          const isRefund = !isPmt && (t.explicitCredit || isRefundTx(t.name));
+          const { explicitCredit, ...rest } = t;
+          return { ...rest, category, isRefund };
         })
         .map(t=>({ ...t, id:txId(t) }));
       if(!parsed.length){ showToast('✗ No transactions found — check Date/Name/Amount columns','#f87171'); return; }
@@ -2301,8 +2341,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         const idx=app.cards.findIndex(c=>c.id===g.action);
         if(idx<0) return;
         const card=app.cards[idx];
-        const existingIds=new Set((card.transactions||[]).map(txId));
-        const fresh=g.transactions.filter(t=>!existingIds.has(txId(t)));
+        const existingTx=card.transactions||[];
+        const fresh=g.transactions.filter(t=>!existingTx.some(e=>txsLikelyDuplicate(t,e)));
         card.transactions=[...fresh, ...(card.transactions||[])];
         card.balance=Math.max(0,Number(g.balanceOverride)||0);
         pushCardHistory(card);
@@ -2508,8 +2548,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(!destOptions.length) return null;
     const destId=cardUi.moveDestId&&destOptions.some(c=>c.id===cardUi.moveDestId)?cardUi.moveDestId:destOptions[0].id;
     const dest=destOptions.find(c=>c.id===destId);
-    const existingIds=new Set((dest.transactions||[]).map(txId));
-    const moving=(src.transactions||[]).filter(t=>!existingIds.has(txId(t)));
+    const existingTx=dest.transactions||[];
+    const moving=(src.transactions||[]).filter(t=>!existingTx.some(e=>txsLikelyDuplicate(t,e)));
     const net=moving.reduce((s,t)=>s+txNetAmount(t),0);
     const destSuggested=Math.max(0,Math.round(((Number(dest.balance)||0)+net)*100)/100);
     const destNewBalance=cardUi.moveBalanceOverride!=null?cardUi.moveBalanceOverride:destSuggested;
@@ -2533,6 +2573,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     showToast(`✓ Moved ${movedCount} transaction${movedCount===1?'':'s'} to ${destName}`,'#34d399');
   }
 
+  function txCategoryOptionsHtml(selected){
+    return Object.keys(SPEND_CAT_COLOR).map(cat=>`<option value="${cat}" ${cat===selected?'selected':''}>${escHtml(cat)}</option>`).join('');
+  }
+  function updateTxCategory(cardId, txIdVal, category){
+    const card=app.cards.find(c=>c.id===cardId);
+    if(!card) return;
+    const t=(card.transactions||[]).find(t=>t.id===txIdVal);
+    if(!t||t.category===category) return;
+    t.category=category;
+    saveApp();
+    renderCardsTab();
+  }
   function cardSpendAndTransactionsHtml(c){
     const transactions=c.transactions||[];
     if(!transactions.length) return '';
@@ -2568,7 +2620,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
           <div style="font-size:9.5px;color:#5b6577;margin-top:1px;">${escHtml(t.date)}${t.isRefund?' · Refund':''}</div>
         </div>
-        <span style="font-size:9px;padding:2px 7px;border-radius:99px;background:${color}22;color:${color};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
+        <select data-act="tx-recat" data-card-id="${c.id}" data-tx-id="${escAttr(t.id||'')}" style="-webkit-appearance:none;appearance:none;border:none;font-size:9px;padding:2px 7px;border-radius:99px;background:${color}22;color:${color};white-space:nowrap;flex-shrink:0;font-family:inherit;cursor:pointer;">${txCategoryOptionsHtml(t.category)}</select>
         <span style="flex-shrink:0;color:${credit?'#34d399':'#eef2f8'};">${credit?'−':''}$${t.amount.toFixed(2)}</span>
       </div>`;
     }).join('');
@@ -2708,6 +2760,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='import-review-next') el.onclick=()=>importReviewNext();
       else if(act==='import-review-back') el.onclick=()=>importReviewBack();
       else if(act==='import-review-apply') el.onclick=()=>applyCsvImportReview();
+      else if(act==='tx-recat') el.onchange=e=>updateTxCategory(el.dataset.cardId, el.dataset.txId, e.target.value);
     });
     document.querySelectorAll('[data-stop-modal="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
     document.querySelectorAll('[data-cards-tab]').forEach(el=>{
@@ -3142,7 +3195,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   function renderCardsTransactionsSub(){
     const all = [];
-    app.cards.forEach(c=>{ (c.transactions||[]).forEach(t=>{ all.push(Object.assign({}, t, { cardName:c.name })); }); });
+    app.cards.forEach(c=>{ (c.transactions||[]).forEach(t=>{ all.push(Object.assign({}, t, { cardName:c.name, cardId:c.id })); }); });
     if(!all.length){
       return `<div style="padding:40px 20px;text-align:center;color:#5b6577;font-size:12px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;">No transactions yet — import a CSV from a card's detail view to see them here.</div>`;
     }
@@ -3161,7 +3214,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           <div style="color:#eef2f8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(t.name)}</div>
           <div style="font-size:9px;color:#5b6577;">${escHtml(t.date)} · ${escHtml(t.cardName)}${t.isRefund?' · Refund':''}</div>
         </div>
-        <span style="font-size:9px;padding:1px 6px;border-radius:99px;background:${SPEND_CAT_COLOR[t.category]||'#8b96a8'}18;color:${SPEND_CAT_COLOR[t.category]||'#8b96a8'};white-space:nowrap;flex-shrink:0;">${escHtml(t.category)}</span>
+        <select data-act="tx-recat" data-card-id="${t.cardId}" data-tx-id="${escAttr(t.id||'')}" style="-webkit-appearance:none;appearance:none;border:none;font-size:9px;padding:1px 6px;border-radius:99px;background:${SPEND_CAT_COLOR[t.category]||'#8b96a8'}18;color:${SPEND_CAT_COLOR[t.category]||'#8b96a8'};white-space:nowrap;flex-shrink:0;font-family:inherit;cursor:pointer;">${txCategoryOptionsHtml(t.category)}</select>
         <span style="color:${credit?'#34d399':'#eef2f8'};flex-shrink:0;">${credit?'-':''}$${t.amount.toFixed(2)}</span>
       </div>`;
     }).join('');
