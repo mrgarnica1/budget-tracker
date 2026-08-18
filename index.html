@@ -619,7 +619,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       filters: new Set(), search: '', searchOpen: false, paidFilter: 'all',
       expandedIds: new Set(), editingIncome: false, editingBill: null,
       confirmingDelete: false, deletingCheckId: null, overviewExpanded: false,
-      byBankView: false,
+      byBankView: false, bankFilter: null,
     };
   }
 
@@ -872,7 +872,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       paidFilter: ui.paidFilter, expandedIds: ui.expandedIds,
       editingIncome: ui.editingIncome, editingBill: ui.editingBill,
       confirmingDelete: ui.confirmingDelete, overviewExpanded: ui.overviewExpanded,
-      byBankView: ui.byBankView,
+      byBankView: ui.byBankView, bankFilter: ui.bankFilter,
     };
   }
 
@@ -888,6 +888,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     ui.editingBill = state.editingBill; ui.confirmingDelete = state.confirmingDelete;
     ui.overviewExpanded = state.overviewExpanded;
     ui.byBankView = state.byBankView;
+    ui.bankFilter = state.bankFilter;
     saveApp();
   }
 
@@ -1088,22 +1089,6 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.remove(),3500);
   }
 
-  function highlightBillRow(content){
-    if(!content) return;
-    const prevBorder=content.style.border, prevTransition=content.style.transition;
-    content.style.transition='border-color .2s';
-    content.style.border='1px solid #22d3ee';
-    setTimeout(()=>{ content.style.border=prevBorder; setTimeout(()=>{ content.style.transition=prevTransition; },250); },900);
-  }
-  function scrollToBillsByBank(bank){
-    const rows=Array.from(document.querySelectorAll('[data-row="1"]'))
-      .filter(r=>{ const b=state.bills.find(x=>String(x.id)===r.dataset.billId); return b&&(b.bank||'').trim().toLowerCase()===bank.toLowerCase(); })
-      .map(r=>r.querySelector('[data-content="1"]'))
-      .filter(Boolean);
-    if(!rows.length) return;
-    rows[0].scrollIntoView({behavior:'smooth', block:'center'});
-    rows.forEach(highlightBillRow);
-  }
   function showToast(msg, bg='#34d399'){
     const t=document.createElement('div');
     t.textContent=msg;
@@ -1603,11 +1588,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
     const start=new Date(state.sd+"T00:00:00"), end=new Date(state.ed+"T23:59:59");
     const enriched=enrich(state.bills,start,end);
-    const matchesFilter=b=>{
+    const matchesBaseFilter=b=>{
       if(state.paidFilter==='paid'&&!b.paid) return false;
       if(state.paidFilter==='unpaid'&&b.paid) return false;
       return b.name.toLowerCase().includes(state.search.toLowerCase());
     };
+    const matchesFilter=b=>matchesBaseFilter(b)&&(!state.bankFilter||(b.bank||'').trim().toLowerCase()===state.bankFilter.toLowerCase());
+    // Bank totals for the carousel always reflect every bank (search/paid filters still
+    // apply), independent of which bank is currently selected as a filter — otherwise
+    // selecting one bank would make every other tab disappear instead of staying tappable.
+    const activeBillsForBankTotals=enriched.filter(b=>!b.archived&&isEffectivelyActive(b)&&matchesBaseFilter(b));
     const activeBills=enriched.filter(b=>!b.archived&&isEffectivelyActive(b)&&matchesFilter(b)).sort((a,b)=>{
       if(a.paid!==b.paid) return a.paid?1:-1;
       if(b.pinned!==a.pinned) return(b.pinned?1:0)-(a.pinned?1:0);
@@ -1637,7 +1627,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     // each carousel tab shows the one number that actually matters: what's owed to that
     // bank in total. Bills with no bank set are left out rather than lumped together.
     const byBankMap={};
-    activeBills.forEach(b=>{
+    activeBillsForBankTotals.forEach(b=>{
       const bank=(b.bank||'').trim();
       if(!bank) return;
       const key=bank.toLowerCase();
@@ -1759,13 +1749,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           <div style="margin-bottom:12px;">
             <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:6px;">DUE BY BANK</div>
             <div class="hscroll" style="display:flex;gap:8px;">
-              ${bankTotals.map(g=>`
-                <div data-act="cc-tab" data-bank="${escAttr(g.bank)}" style="flex-shrink:0;min-width:104px;background:#101827;border:1px solid ${g.allPaid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${g.allPaid?'0.5':'1'};">
-                  <div style="font-size:10.5px;color:#c7cfdb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(g.bank)}</div>
+              ${bankTotals.map(g=>{
+                const selected=state.bankFilter&&g.bank.toLowerCase()===state.bankFilter.toLowerCase();
+                return `
+                <div data-act="cc-tab" data-bank="${escAttr(g.bank)}" style="flex-shrink:0;min-width:104px;background:${selected?'#3987e51a':'#101827'};border:1px solid ${selected?'#3987e5':g.allPaid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${g.allPaid&&!selected?'0.5':'1'};">
+                  <div style="font-size:10.5px;color:${selected?'#eef2f8':'#c7cfdb'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(g.bank)}${selected?' ✓':''}</div>
                   <div class="syne" style="font-size:14px;color:#3987e5;margin-top:2px;">$${g.total.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                   ${g.count>1?`<div style="font-size:8px;color:#5b6577;margin-top:1px;">${g.count} bills</div>`:''}
                 </div>
-              `).join('')}
+              `;}).join('')}
             </div>
           </div>
           ` : state.byBankView ? `
@@ -1773,7 +1765,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           ` : ''}
           <div style="border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:10px 10px 6px;margin-bottom:16px;background:#070b14;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-left:4px;gap:8px;flex-wrap:wrap;">
-              <div style="font-size:10px;color:#eef2f8;letter-spacing:.08em;font-weight:500;">ACTIVE <span style="color:#8b96a8;margin-left:6px;">${activeBills.length} bills</span></div>
+              <div style="font-size:10px;color:#eef2f8;letter-spacing:.08em;font-weight:500;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">ACTIVE <span style="color:#8b96a8;">${activeBills.length} bills</span>
+                ${state.bankFilter?`<button data-act="cc-tab" data-bank="${escAttr(state.bankFilter)}" style="background:#3987e51a;border:1px solid #3987e555;color:#3987e5;padding:2px 8px;border-radius:99px;font-size:9px;font-family:inherit;cursor:pointer;letter-spacing:.04em;">${escHtml(state.bankFilter)} ✕</button>`:''}
+              </div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <button data-act="new-bill" style="background:#34d39914;border:1px solid #34d39955;color:#34d399;padding:3px 10px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;letter-spacing:.05em;">+ ADD BILL</button>
                 <div class="syne" style="font-size:13px;color:#22d3ee;">$${totalActive.toFixed(0)}</div>
@@ -1848,7 +1842,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='inc-delete') el.onclick=()=>{ const i=Number(el.dataset.incIdx); if(state.incomeSources.length>1){state.incomeSources.splice(i,1);render();} };
       else if(act==='inc-add') el.onclick=()=>{ state.incomeSources.push({id:Date.now(),label:`Income ${state.incomeSources.length+1}`,amount:0}); render(); };
       else if(act==='toggle-overview') el.onclick=()=>{ state.overviewExpanded=!state.overviewExpanded; render(); };
-      else if(act==='cc-tab') el.onclick=()=>scrollToBillsByBank(el.dataset.bank);
+      else if(act==='cc-tab') el.onclick=()=>{ const bank=el.dataset.bank; state.bankFilter=(state.bankFilter&&state.bankFilter.toLowerCase()===bank.toLowerCase())?null:bank; render(); };
       else if(act==='toggle-search') el.onclick=()=>{ state.searchOpen=!state.searchOpen; if(!state.searchOpen) state.search=''; render(); };
       else if(act==='set-search') el.oninput=e=>{ state.search=e.target.value; render(); };
       else if(act==='set-paid-filter') el.onchange=e=>{ state.paidFilter=e.target.value; render(); };
