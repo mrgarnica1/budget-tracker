@@ -66,6 +66,8 @@ button { font-family: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid rgba(34,211,238,.55); outline-offset: 2px; }
 .cards-subnav { display: flex; gap: 2px; overflow-x: auto; margin: 0 -16px 14px; padding: 0 16px 2px; scrollbar-width: none; border-bottom: 1px solid rgba(148,163,184,.10); }
 .cards-subnav::-webkit-scrollbar { display: none; }
+.hscroll { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.hscroll::-webkit-scrollbar { display: none; }
 .cst { flex-shrink: 0; font-size: 12px; font-weight: 600; padding: 9px 12px 10px; background: transparent; border: none; border-bottom: 2px solid transparent; color: #8b96a8; cursor: pointer; font-family: inherit; white-space: nowrap; margin-bottom: -1px; }
 .cst.on { color: #fff; border-bottom-color: #e8b565; }
 .cardface-no-logo svg { display: none; }
@@ -616,7 +618,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     return {
       filters: new Set(), search: '', searchOpen: false, paidFilter: 'all',
       expandedIds: new Set(), editingIncome: false, editingBill: null,
-      confirmingDelete: false, deletingCheckId: null,
+      confirmingDelete: false, deletingCheckId: null, overviewExpanded: false,
     };
   }
 
@@ -868,7 +870,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       filter: 'All', filters: ui.filters, search: ui.search, searchOpen: ui.searchOpen,
       paidFilter: ui.paidFilter, expandedIds: ui.expandedIds,
       editingIncome: ui.editingIncome, editingBill: ui.editingBill,
-      confirmingDelete: ui.confirmingDelete,
+      confirmingDelete: ui.confirmingDelete, overviewExpanded: ui.overviewExpanded,
     };
   }
 
@@ -882,6 +884,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     ui.search = state.search; ui.searchOpen = state.searchOpen;
     ui.paidFilter = state.paidFilter; ui.editingIncome = state.editingIncome;
     ui.editingBill = state.editingBill; ui.confirmingDelete = state.confirmingDelete;
+    ui.overviewExpanded = state.overviewExpanded;
     saveApp();
   }
 
@@ -1082,6 +1085,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.remove(),3500);
   }
 
+  function scrollToBill(billId){
+    const row=document.querySelector(`[data-row="1"][data-bill-id="${billId}"] [data-content="1"]`);
+    if(!row) return;
+    row.scrollIntoView({behavior:'smooth', block:'center'});
+    const prevBorder=row.style.border, prevTransition=row.style.transition;
+    row.style.transition='border-color .2s';
+    row.style.border='1px solid #22d3ee';
+    setTimeout(()=>{ row.style.border=prevBorder; setTimeout(()=>{ row.style.transition=prevTransition; },250); },900);
+  }
   function showToast(msg, bg='#34d399'){
     const t=document.createElement('div');
     t.textContent=msg;
@@ -1610,6 +1622,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       {l:"AVAILABLE",v:`${isOver?'-':''}$${Math.abs(remaining).toFixed(0)}`,s:isOver?"over budget":"unallocated",c:sc},
       {l:"TAKE-HOME",v:`$${state.income.toLocaleString()}`,s:"per check · tap to edit",c:"#b8c2d1",ed:true},
     ];
+    // Each active CC-type bill stands in for one credit card's payment — surfaced as its
+    // own carousel tab so the CC total in the category bar can be read per-card at a
+    // glance without opening every row.
+    const ccBills=activeBills.filter(b=>b.type==='CC').sort((a,b)=>Number(b.planned||0)-Number(a.planned||0));
     const root=document.getElementById('root');
 
     root.innerHTML=`
@@ -1655,10 +1671,16 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         </div>
         <div style="padding:14px 16px;max-width:700px;margin:0 auto;">
           <div id="scroll-sentinel" style="height:1px;margin-bottom:-1px;"></div>
+          ${state.overviewExpanded ? `
           <div style="background:#101827;border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
               <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;">DATE RANGE</div>
-              <div style="font-size:9px;color:#8b96a8;letter-spacing:.05em;">CHECK #${state.checkN}</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="font-size:9px;color:#8b96a8;letter-spacing:.05em;">CHECK #${state.checkN}</div>
+                <button data-act="toggle-overview" title="Minimize" style="width:22px;height:22px;border-radius:6px;border:1px solid rgba(148,163,184,.22);color:#8b96a8;background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+                </button>
+              </div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input type="date" class="di" data-act="set-sd" data-focus-key="sd" style="flex:1;min-width:120px;" value="${state.sd}" />
@@ -1684,6 +1706,32 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
               ${byType.map(([t,a])=>`<div style="display:flex;align-items:center;gap:3px;"><div style="width:5px;height:5px;border-radius:1px;background:${TC[t]||'#5b6577'};"></div><span style="font-size:8px;color:#8b96a8;">${t} <span style="color:#8b96a8;">$${a.toFixed(0)}</span></span></div>`).join('')}
             </div>
           </div>
+          ` : `
+          <div data-act="toggle-overview" style="background:#101827;border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;">
+            <div style="min-width:0;">
+              <div style="font-size:13px;color:#eef2f8;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${fmtD(state.sd)} → ${fmtD(state.ed)} <span style="color:#8b96a8;font-weight:400;font-size:11px;">· #${state.checkN}</span></div>
+              <div style="font-size:10px;color:#8b96a8;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                <span style="color:${leftToPay>0?'#eef2f8':'#34d399'};">$${leftToPay.toLocaleString(undefined,{maximumFractionDigits:0})} left</span> · <span style="color:${sc};">${isOver?'-':''}$${Math.abs(remaining).toFixed(0)} ${isOver?'over':'avail'}</span> · ${inRangeCount} due · $${totalInRange.toFixed(0)}
+              </div>
+            </div>
+            <div style="width:26px;height:26px;border-radius:8px;border:1px solid rgba(148,163,184,.22);color:#8b96a8;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+          </div>
+          `}
+          ${ccBills.length ? `
+          <div style="margin-bottom:12px;">
+            <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:6px;">CREDIT CARDS DUE</div>
+            <div class="hscroll" style="display:flex;gap:8px;">
+              ${ccBills.map(b=>`
+                <div data-act="cc-tab" data-bill-id="${b.id}" style="flex-shrink:0;min-width:104px;background:#101827;border:1px solid ${b.paid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${b.paid?'0.5':'1'};">
+                  <div style="font-size:10.5px;color:#c7cfdb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(b.name)}</div>
+                  <div class="syne" style="font-size:14px;color:#3987e5;margin-top:2px;">$${Number(b.planned||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
           <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
             <button data-act="toggle-search" style="background:${state.search||state.searchOpen?'#22d3ee18':'transparent'};border:1px solid ${state.search||state.searchOpen?'#22d3ee55':'rgba(148,163,184,.22)'};color:${state.search||state.searchOpen?'#22d3ee':'#8b96a8'};width:36px;height:36px;border-radius:8px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
@@ -1769,6 +1817,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='inc-amount') el.onchange=e=>{ const i=Number(el.dataset.incIdx); if(state.incomeSources[i]){state.incomeSources[i].amount=Number(e.target.value)||0;render();} };
       else if(act==='inc-delete') el.onclick=()=>{ const i=Number(el.dataset.incIdx); if(state.incomeSources.length>1){state.incomeSources.splice(i,1);render();} };
       else if(act==='inc-add') el.onclick=()=>{ state.incomeSources.push({id:Date.now(),label:`Income ${state.incomeSources.length+1}`,amount:0}); render(); };
+      else if(act==='toggle-overview') el.onclick=()=>{ state.overviewExpanded=!state.overviewExpanded; render(); };
+      else if(act==='cc-tab') el.onclick=()=>scrollToBill(id);
       else if(act==='toggle-search') el.onclick=()=>{ state.searchOpen=!state.searchOpen; if(!state.searchOpen) state.search=''; render(); };
       else if(act==='set-search') el.oninput=e=>{ state.search=e.target.value; render(); };
       else if(act==='set-paid-filter') el.onchange=e=>{ state.paidFilter=e.target.value; render(); };
