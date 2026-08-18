@@ -1085,14 +1085,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.remove(),3500);
   }
 
-  function scrollToBill(billId){
-    const row=document.querySelector(`[data-row="1"][data-bill-id="${billId}"] [data-content="1"]`);
-    if(!row) return;
-    row.scrollIntoView({behavior:'smooth', block:'center'});
-    const prevBorder=row.style.border, prevTransition=row.style.transition;
-    row.style.transition='border-color .2s';
-    row.style.border='1px solid #22d3ee';
-    setTimeout(()=>{ row.style.border=prevBorder; setTimeout(()=>{ row.style.transition=prevTransition; },250); },900);
+  function highlightBillRow(content){
+    if(!content) return;
+    const prevBorder=content.style.border, prevTransition=content.style.transition;
+    content.style.transition='border-color .2s';
+    content.style.border='1px solid #22d3ee';
+    setTimeout(()=>{ content.style.border=prevBorder; setTimeout(()=>{ content.style.transition=prevTransition; },250); },900);
+  }
+  function scrollToBillsByBank(bank){
+    const rows=Array.from(document.querySelectorAll('[data-row="1"]'))
+      .filter(r=>{ const b=state.bills.find(x=>String(x.id)===r.dataset.billId); return b&&b.type==='CC'&&((b.bank||'').trim()||'Other')===bank; })
+      .map(r=>r.querySelector('[data-content="1"]'))
+      .filter(Boolean);
+    if(!rows.length) return;
+    rows[0].scrollIntoView({behavior:'smooth', block:'center'});
+    rows.forEach(highlightBillRow);
   }
   function showToast(msg, bg='#34d399'){
     const t=document.createElement('div');
@@ -1612,20 +1619,25 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const inRangeCount=activeBills.filter(b=>b.inRange).length;
     const totalInRange=activeBills.filter(b=>b.inRange).reduce((s,b)=>s+Number(b.planned||0),0);
     const remaining=state.income-totalActive, isOver=remaining<0, sc=isOver?"#f87171":"#34d399";
-    const byTypeMap={};
-    activeBills.forEach(b=>{ byTypeMap[b.type]=(byTypeMap[b.type]||0)+Number(b.planned||0); });
-    const byType=Object.entries(byTypeMap).sort((a,b)=>b[1]-a[1]);
     const unpaidBills=activeBills.filter(b=>!b.paid);
     const leftToPay=unpaidBills.reduce((s2,b)=>s2+Number(b.planned||0),0);
+    const paidAmount=Math.max(0,totalActive-leftToPay);
     const stats=[
       {l:"LEFT TO PAY",v:`$${leftToPay.toLocaleString(undefined,{maximumFractionDigits:0})}`,s:`${unpaidBills.length} unpaid bills`,c:leftToPay>0?"#eef2f8":"#34d399"},
       {l:"AVAILABLE",v:`${isOver?'-':''}$${Math.abs(remaining).toFixed(0)}`,s:isOver?"over budget":"unallocated",c:sc},
       {l:"TAKE-HOME",v:`$${state.income.toLocaleString()}`,s:"per check · tap to edit",c:"#b8c2d1",ed:true},
     ];
-    // Each active CC-type bill stands in for one credit card's payment — surfaced as its
-    // own carousel tab so the CC total in the category bar can be read per-card at a
-    // glance without opening every row.
-    const ccBills=activeBills.filter(b=>b.type==='CC').sort((a,b)=>Number(b.planned||0)-Number(a.planned||0));
+    // Bills are entered per card/subscription, not per bank, so a bank can easily have
+    // several bills (e.g. two Chase cards) — group CC-type bills by bank so each carousel
+    // tab shows the one number that actually matters: what's owed to that bank in total.
+    const ccByBankMap={};
+    activeBills.filter(b=>b.type==='CC').forEach(b=>{
+      const bank=(b.bank||'').trim()||'Other';
+      const g=ccByBankMap[bank]||(ccByBankMap[bank]={bank,total:0,count:0,allPaid:true});
+      g.total+=Number(b.planned||0); g.count++;
+      if(!b.paid) g.allPaid=false;
+    });
+    const ccByBank=Object.values(ccByBankMap).sort((a,b)=>b.total-a.total);
     const root=document.getElementById('root');
 
     root.innerHTML=`
@@ -1700,10 +1712,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           </div>
           <div style="margin-bottom:12px;">
             <div style="height:4px;background:rgba(148,163,184,.10);border-radius:99px;overflow:hidden;display:flex;">
-              ${byType.map(([t,a])=>`<div style="height:100%;width:${Math.min(100,(a/state.income)*100)}%;background:${TC[t]||'#5b6577'};transition:width .4s;"></div>`).join('')}
+              ${paidAmount>0?`<div style="height:100%;width:${(isOver?(paidAmount/totalActive*100):(paidAmount/state.income*100)).toFixed(2)}%;background:#34d399;transition:width .4s;"></div>`:''}
+              ${leftToPay>0?`<div style="height:100%;width:${(isOver?(leftToPay/totalActive*100):(leftToPay/state.income*100)).toFixed(2)}%;background:#e8b565;transition:width .4s;"></div>`:''}
+              ${!isOver&&remaining>0?`<div style="height:100%;width:${(remaining/state.income*100).toFixed(2)}%;background:#22d3ee;transition:width .4s;"></div>`:''}
             </div>
             <div style="display:flex;gap:10px;margin-top:5px;flex-wrap:wrap;">
-              ${byType.map(([t,a])=>`<div style="display:flex;align-items:center;gap:3px;"><div style="width:5px;height:5px;border-radius:1px;background:${TC[t]||'#5b6577'};"></div><span style="font-size:8px;color:#8b96a8;">${t} <span style="color:#8b96a8;">$${a.toFixed(0)}</span></span></div>`).join('')}
+              <div style="display:flex;align-items:center;gap:3px;"><div style="width:5px;height:5px;border-radius:1px;background:#34d399;"></div><span style="font-size:8px;color:#8b96a8;">Paid <span style="color:#8b96a8;">$${paidAmount.toFixed(0)}</span></span></div>
+              <div style="display:flex;align-items:center;gap:3px;"><div style="width:5px;height:5px;border-radius:1px;background:#e8b565;"></div><span style="font-size:8px;color:#8b96a8;">Left to pay <span style="color:#8b96a8;">$${leftToPay.toFixed(0)}</span></span></div>
+              <div style="display:flex;align-items:center;gap:3px;"><div style="width:5px;height:5px;border-radius:1px;background:${isOver?'#f87171':'#22d3ee'};"></div><span style="font-size:8px;color:#8b96a8;">${isOver?'Over by':'Available'} <span style="color:#8b96a8;">$${Math.abs(remaining).toFixed(0)}</span></span></div>
+              <div style="display:flex;align-items:center;gap:3px;margin-left:auto;"><span style="font-size:8px;color:#5b6577;">Take-home $${state.income.toLocaleString()}</span></div>
             </div>
           </div>
           ` : `
@@ -1719,14 +1736,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             </div>
           </div>
           `}
-          ${ccBills.length ? `
+          ${ccByBank.length ? `
           <div style="margin-bottom:12px;">
             <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:6px;">CREDIT CARDS DUE</div>
             <div class="hscroll" style="display:flex;gap:8px;">
-              ${ccBills.map(b=>`
-                <div data-act="cc-tab" data-bill-id="${b.id}" style="flex-shrink:0;min-width:104px;background:#101827;border:1px solid ${b.paid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${b.paid?'0.5':'1'};">
-                  <div style="font-size:10.5px;color:#c7cfdb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(b.name)}</div>
-                  <div class="syne" style="font-size:14px;color:#3987e5;margin-top:2px;">$${Number(b.planned||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+              ${ccByBank.map(g=>`
+                <div data-act="cc-tab" data-bank="${escAttr(g.bank)}" style="flex-shrink:0;min-width:104px;background:#101827;border:1px solid ${g.allPaid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${g.allPaid?'0.5':'1'};">
+                  <div style="font-size:10.5px;color:#c7cfdb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(g.bank)}</div>
+                  <div class="syne" style="font-size:14px;color:#3987e5;margin-top:2px;">$${g.total.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                  ${g.count>1?`<div style="font-size:8px;color:#5b6577;margin-top:1px;">${g.count} bills</div>`:''}
                 </div>
               `).join('')}
             </div>
@@ -1818,7 +1836,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='inc-delete') el.onclick=()=>{ const i=Number(el.dataset.incIdx); if(state.incomeSources.length>1){state.incomeSources.splice(i,1);render();} };
       else if(act==='inc-add') el.onclick=()=>{ state.incomeSources.push({id:Date.now(),label:`Income ${state.incomeSources.length+1}`,amount:0}); render(); };
       else if(act==='toggle-overview') el.onclick=()=>{ state.overviewExpanded=!state.overviewExpanded; render(); };
-      else if(act==='cc-tab') el.onclick=()=>scrollToBill(id);
+      else if(act==='cc-tab') el.onclick=()=>scrollToBillsByBank(el.dataset.bank);
       else if(act==='toggle-search') el.onclick=()=>{ state.searchOpen=!state.searchOpen; if(!state.searchOpen) state.search=''; render(); };
       else if(act==='set-search') el.oninput=e=>{ state.search=e.target.value; render(); };
       else if(act==='set-paid-filter') el.onchange=e=>{ state.paidFilter=e.target.value; render(); };
