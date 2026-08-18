@@ -1094,7 +1094,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   }
   function scrollToBillsByBank(bank){
     const rows=Array.from(document.querySelectorAll('[data-row="1"]'))
-      .filter(r=>{ const b=state.bills.find(x=>String(x.id)===r.dataset.billId); return b&&b.type==='CC'&&((b.bank||'').trim()||'Other')===bank; })
+      .filter(r=>{ const b=state.bills.find(x=>String(x.id)===r.dataset.billId); return b&&(b.bank||'').trim().toLowerCase()===bank.toLowerCase(); })
       .map(r=>r.querySelector('[data-content="1"]'))
       .filter(Boolean);
     if(!rows.length) return;
@@ -1629,17 +1629,20 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       {l:"TAKE-HOME",v:`$${state.income.toLocaleString()}`,s:"per check · tap to edit",c:"#b8c2d1",ed:true},
     ];
     // Bills are entered per card/subscription, not per bank, so a bank can easily have
-    // several bills (e.g. two Chase cards) — group CC-type bills by bank so each carousel
-    // tab shows the one number that actually matters: what's owed to that bank in total.
-    const ccByBankMap={};
-    activeBills.filter(b=>b.type==='CC').forEach(b=>{
-      const bank=(b.bank||'').trim()||'Other';
+    // several bills (e.g. a card payment bill plus an unrelated subscription that happens
+    // to be charged to the same card) — group by bank alone, regardless of category, so
+    // each carousel tab shows the one number that actually matters: what's owed to that
+    // bank in total. Bills with no bank set are left out rather than lumped together.
+    const byBankMap={};
+    activeBills.forEach(b=>{
+      const bank=(b.bank||'').trim();
+      if(!bank) return;
       const key=bank.toLowerCase();
-      const g=ccByBankMap[key]||(ccByBankMap[key]={bank,total:0,count:0,allPaid:true});
+      const g=byBankMap[key]||(byBankMap[key]={bank,total:0,count:0,allPaid:true});
       g.total+=Number(b.planned||0); g.count++;
       if(!b.paid) g.allPaid=false;
     });
-    const ccByBank=Object.values(ccByBankMap).sort((a,b)=>b.total-a.total);
+    const bankTotals=Object.values(byBankMap).sort((a,b)=>b.total-a.total);
     const root=document.getElementById('root');
 
     root.innerHTML=`
@@ -1738,11 +1741,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             </div>
           </div>
           `}
-          ${ccByBank.length ? `
+          ${bankTotals.length ? `
           <div style="margin-bottom:12px;">
-            <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:6px;">CREDIT CARDS DUE</div>
+            <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:6px;">DUE BY BANK</div>
             <div class="hscroll" style="display:flex;gap:8px;">
-              ${ccByBank.map(g=>`
+              ${bankTotals.map(g=>`
                 <div data-act="cc-tab" data-bank="${escAttr(g.bank)}" style="flex-shrink:0;min-width:104px;background:#101827;border:1px solid ${g.allPaid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${g.allPaid?'0.5':'1'};">
                   <div style="font-size:10.5px;color:#c7cfdb;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(g.bank)}</div>
                   <div class="syne" style="font-size:14px;color:#3987e5;margin-top:2px;">$${g.total.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
