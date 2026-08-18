@@ -38,9 +38,23 @@ select.di { appearance: none; -webkit-appearance: none; background-image: url("d
 select.ef { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; padding-right: 26px; cursor: pointer; }
 .syne { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-weight: 800; letter-spacing: -0.02em; }
 input::placeholder { color: #475061; }
-button { font-family: inherit; }
+button { font-family: inherit; transition: transform .1s ease; }
+button:active:not(:disabled) { transform: scale(.96); }
 .modal-card { animation: pop .15s ease; }
+.modal-backdrop { animation: fadeIn .15s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pop { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes togglePop { 0% { transform: scale(1); } 45% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes screenEnter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+#root.screen-enter { animation: screenEnter .22s cubic-bezier(.22,.68,.35,1) both; }
+.fchip { transition: background .18s ease, color .18s ease, transform .1s ease; }
+.fchip:active { transform: scale(.95); }
+.tap-card { transition: transform .12s ease, border-color .15s ease; }
+.tap-card:active { transform: scale(.98); }
+.toast-pop { animation: toastIn .2s cubic-bezier(.22,.68,.35,1) both; }
+.toast-out { animation: toastOut .18s ease forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes toastOut { from { opacity: 1; transform: translate(-50%, 0) scale(1); } to { opacity: 0; transform: translate(-50%, 6px) scale(.97); } }
 @media (max-width: 480px) {
   .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
   .stat-grid > div { padding: 7px 8px !important; }
@@ -52,6 +66,7 @@ button { font-family: inherit; }
 @keyframes banner-pop { 0%{transform:translate(-50%,-50%) scale(0.4);opacity:0} 60%{transform:translate(-50%,-50%) scale(1.08)} 100%{transform:translate(-50%,-50%) scale(1);opacity:1} }
 @keyframes banner-fade { 0%{opacity:1} 100%{opacity:0;transform:translate(-50%,-50%) scale(0.9)} }
 .check-card { background: linear-gradient(180deg, #111a2c 0%, #0b1120 100%); border: 1px solid rgba(148,163,184,.14); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color .15s, transform .15s; }
+.check-card:active { transform: scale(.98); }
 .check-card:hover { border-color: rgba(34,211,238,.35); transform: translateY(-2px); }
 .grad-text { background: linear-gradient(135deg, #3987e5, #22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .btn-grad { border: 0; cursor: pointer; color: #04121f; font-weight: 700; background: linear-gradient(135deg, #3987e5, #22d3ee); box-shadow: 0 4px 24px rgba(34,211,238,.25); }
@@ -79,11 +94,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   .cards-body.cards-slide-next, .cards-body.cards-slide-prev { animation: none; }
 }
 #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; display: flex; background: #0a101d; border-top: 1px solid rgba(148,163,184,.12); padding-bottom: env(safe-area-inset-bottom, 0); }
-.bnav-tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 18px 4px; min-height: 72px; background: transparent; border: none; cursor: pointer; font-family: inherit; color: #5b6577; }
-.bnav-tab svg { opacity: .7; transition: opacity .15s; }
-.bnav-tab span { font-size: 9.5px; font-weight: 600; letter-spacing: .02em; }
+#bnav-indicator { position: absolute; top: 6px; height: 60px; border-radius: 14px; background: radial-gradient(circle, rgba(34,211,238,.14), rgba(34,211,238,0) 70%); transition: transform .28s cubic-bezier(.22,.68,.35,1), width .28s cubic-bezier(.22,.68,.35,1); pointer-events: none; z-index: 0; }
+#bnav-indicator.no-anim { transition: none; }
+.bnav-tab { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 18px 4px; min-height: 72px; background: transparent; border: none; cursor: pointer; font-family: inherit; color: #5b6577; transition: color .18s ease, transform .1s ease; }
+.bnav-tab:active { transform: scale(.94); }
+.bnav-tab svg { opacity: .7; transition: opacity .15s, transform .18s cubic-bezier(.34,1.56,.64,1); }
+.bnav-tab span { font-size: 9.5px; font-weight: 600; letter-spacing: .02em; transition: color .18s ease; }
 .bnav-tab.active { color: #22d3ee; }
-.bnav-tab.active svg { opacity: 1; }
+.bnav-tab.active svg { opacity: 1; transform: translateY(-1px); }
 </style>
 </head>
 <body>
@@ -177,7 +195,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     localStorage.setItem(WEBAUTHN_PROMPTED_KEY,'1');
     const root = document.getElementById('root');
     root.innerHTML += `
-      <div style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;">
+      <div class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;">
         <div style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:14px;padding:24px;max-width:320px;width:100%;text-align:center;">
           <div style="font-size:32px;margin-bottom:10px;">🙂</div>
           <div class="syne" style="font-size:16px;color:#fff;margin-bottom:8px;">Enable Face ID?</div>
@@ -892,6 +910,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     saveApp();
   }
 
+  /* ── One-shot interaction feedback — since every state change triggers a full
+     innerHTML re-render (even a single keystroke elsewhere), a CSS animation can't just
+     be left on an element or it would replay on every unrelated render. A handler sets
+     this key right before its render() call; whichever element matches it on the very
+     next render consumes it (and clears it), so the pop plays exactly once, only for the
+     thing that was actually just tapped. ─────────────────────────────────────────── */
+  let lastToggleAnim = null;
+  function consumeToggleAnim(key){
+    if(lastToggleAnim===key){ lastToggleAnim=null; return true; }
+    return false;
+  }
+
   /* ── Celebration ───────────────────────────────────────────── */
   let celebrationShown = false;
   function triggerCelebration() {
@@ -1032,6 +1062,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
   function showDataModal(prefill='', isImport=true){
     const overlay=document.createElement('div');
+    overlay.className='modal-backdrop';
     overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;';
     overlay.innerHTML=`
       <div style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;width:100%;max-width:480px;">
@@ -1077,23 +1108,31 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   }
 
   let undoTimer=null;
+  function dismissToast(t){
+    if(!t||!t.isConnected) return;
+    t.classList.remove('toast-pop');
+    t.classList.add('toast-out');
+    setTimeout(()=>t.remove(),180);
+  }
   function showUndoToast(billId){
     const b=state.bills.find(x=>x.id===billId); if(!b) return;
     document.querySelectorAll('[data-undo-toast]').forEach(t=>t.remove());
     const t=document.createElement('div');
     t.setAttribute('data-undo-toast','1');
+    t.className='toast-pop';
     t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#16233b;border:1px solid rgba(34,211,238,.35);color:#eef2f8;padding:10px 14px;border-radius:8px;font-size:12px;font-weight:500;z-index:9999;white-space:nowrap;box-shadow:0 8px 30px rgba(0,0,0,.5);display:flex;align-items:center;gap:10px;';
     t.innerHTML=`${escHtml(b.name)} marked ${b.paid?'paid':'unpaid'} <button style="border:0;background:transparent;color:#22d3ee;font-weight:800;font-size:12px;cursor:pointer;letter-spacing:.06em;font-family:inherit;">UNDO</button>`;
-    t.querySelector('button').onclick=()=>{ const bb=state.bills.find(x=>x.id===billId); if(bb){bb.paid=!bb.paid;render();} t.remove(); clearTimeout(undoTimer); };
+    t.querySelector('button').onclick=()=>{ const bb=state.bills.find(x=>x.id===billId); if(bb){bb.paid=!bb.paid;render();} dismissToast(t); clearTimeout(undoTimer); };
     document.body.appendChild(t);
-    clearTimeout(undoTimer); undoTimer=setTimeout(()=>t.remove(),3500);
+    clearTimeout(undoTimer); undoTimer=setTimeout(()=>dismissToast(t),3500);
   }
 
   function showToast(msg, bg='#34d399'){
     const t=document.createElement('div');
     t.textContent=msg;
+    t.className='toast-pop';
     t.style.cssText=`position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:${bg};color:${bg==='#34d399'?'#070b14':'#070b14'};padding:10px 18px;border-radius:6px;font-size:12px;font-family:inherit;font-weight:600;z-index:9999;white-space:nowrap;`;
-    document.body.appendChild(t); setTimeout(()=>t.remove(),3500);
+    document.body.appendChild(t); setTimeout(()=>dismissToast(t),3500);
   }
 
   /* ── Home screen ───────────────────────────────────────────── */
@@ -1320,7 +1359,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             </div>
             <div style="font-size:13px;font-family:inherit;color:${b.active&&b.inRange?'#22d3ee':'#3a4354'};white-space:nowrap;flex-shrink:0;min-width:36px;text-align:right;">${due}</div>
             ${effActive?`
-              <button data-act="toggle-paid" data-bill-id="${b.id}" title="${b.paid?'Mark unpaid':'Mark paid'}" style="width:24px;height:24px;border-radius:99px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;position:relative;${b.paid?'background:linear-gradient(135deg,#34d399,#6ee7b7);border:0;color:#04121f;':'background:transparent;border:1.5px solid rgba(148,163,184,.22);color:transparent;'}">✓</button>
+              <button data-act="toggle-paid" data-bill-id="${b.id}" title="${b.paid?'Mark unpaid':'Mark paid'}" style="width:24px;height:24px;border-radius:99px;flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;position:relative;${consumeToggleAnim('paid-'+b.id)?'animation:togglePop .3s ease;':''}${b.paid?'background:linear-gradient(135deg,#34d399,#6ee7b7);border:0;color:#04121f;':'background:transparent;border:1.5px solid rgba(148,163,184,.22);color:transparent;'}">✓</button>
               <div data-stop="1" style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
                 <span style="color:#8b96a8;font-size:11px;">$</span>
                 <input type="number" min="0" data-act="planned" data-bill-id="${b.id}" data-focus-key="planned-${b.id}" value="${b.planned}" style="background:transparent;border:none;border-bottom:1px solid rgba(148,163,184,.22);color:#eef2f8;font-family:inherit;font-size:16px;width:46px;text-align:right;padding:1px 0;outline:none;" />
@@ -1344,8 +1383,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   // attachDetailEvents() bind the toggle handler twice (once per element),
   // so a tap on the switch itself fired on, then immediately off again.
   function toggleSwitch(on, act, id, onColor='#34d399'){
+    const pop=consumeToggleAnim(id==null?act:`${act}-${id}`)?'animation:togglePop .3s ease;':'';
     return `<div style="display:inline-flex;align-items:center;">
-      <div style="width:42px;height:24px;border-radius:99px;background:${on?onColor:'rgba(148,163,184,.22)'};position:relative;transition:background .2s;flex-shrink:0;">
+      <div style="width:42px;height:24px;border-radius:99px;background:${on?onColor:'rgba(148,163,184,.22)'};position:relative;transition:background .2s;flex-shrink:0;${pop}">
         <div style="position:absolute;top:3px;left:${on?'21px':'3px'};width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.4);"></div>
       </div>
     </div>`;
@@ -1422,7 +1462,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const realBill=isNew?null:state.bills.find(bb=>bb.id===eb.id);
     const effActiveNow=realBill?isEffectivelyActive(enrich([realBill],new Date(state.sd+'T00:00:00'),new Date(state.ed+'T23:59:59'))[0]):false;
     const statusValue=eb.archived?'archived':effActiveNow?'active':'inactive';
-    return `<div data-act="modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+    return `<div data-act="modal-bg" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">${isNew?'+ NEW BILL':'EDIT BILL'}</div>
@@ -1471,7 +1511,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   function incomeModalHtml(){
     if(!state.editingIncome) return '';
     const total=state.income;
-    return `<div data-act="income-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+    return `<div data-act="income-modal-bg" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
           <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">TAKE-HOME INCOME</div>
@@ -1722,7 +1762,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
           </div>
           <div style="margin-bottom:12px;">${budgetBarHtml}</div>
           ` : `
-          <div data-act="toggle-overview" style="background:#101827;border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:10px 14px;margin-bottom:12px;cursor:pointer;">
+          <div data-act="toggle-overview" class="tap-card" style="background:#101827;border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:10px 14px;margin-bottom:12px;cursor:pointer;">
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
               <div style="min-width:0;">
                 <div style="font-size:13px;color:#eef2f8;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${fmtD(state.sd)} → ${fmtD(state.ed)} <span style="color:#8b96a8;font-weight:400;font-size:11px;">· #${state.checkN}</span></div>
@@ -1755,7 +1795,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
               ${bankTotals.map(g=>{
                 const selected=state.bankFilter&&g.bank.toLowerCase()===state.bankFilter.toLowerCase();
                 return `
-                <div data-act="cc-tab" data-bank="${escAttr(g.bank)}" style="flex-shrink:0;min-width:104px;background:${selected?'#3987e51a':'#101827'};border:1px solid ${selected?'#3987e5':g.allPaid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${g.allPaid&&!selected?'0.5':'1'};">
+                <div data-act="cc-tab" data-bank="${escAttr(g.bank)}" class="tap-card" style="flex-shrink:0;min-width:104px;background:${selected?'#3987e51a':'#101827'};border:1px solid ${selected?'#3987e5':g.allPaid?'rgba(148,163,184,.14)':'#3987e555'};border-radius:10px;padding:8px 12px;cursor:pointer;opacity:${g.allPaid&&!selected?'0.5':'1'};">
                   <div style="font-size:10.5px;color:${selected?'#eef2f8':'#c7cfdb'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${escHtml(g.bank)}${selected?' ✓':''}</div>
                   <div class="syne" style="font-size:14px;color:#3987e5;margin-top:2px;">$${g.total.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                   ${g.count>1?`<div style="font-size:8px;color:#5b6577;margin-top:1px;">${g.count} bills</div>`:''}
@@ -1855,7 +1895,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         el.onchange=e=>{ const b=state.bills.find(b=>b.id===id); if(b) b.planned=e.target.value===''?0:Number(e.target.value); render(); };
         el.onclick=e=>e.stopPropagation(); el.onmousedown=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation();
       }
-      else if(act==='toggle-paid') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){b.paid=!b.paid;render();showUndoToast(id);} };
+      else if(act==='toggle-paid') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){b.paid=!b.paid;lastToggleAnim='paid-'+id;render();showUndoToast(id);} };
       else if(act==='toggle-autopay') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){b.autopay=!b.autopay;render();} };
       else if(act==='toggle-active') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){ const wasActive=el.dataset.effActive==='1'; b.manualActive=wasActive?false:true; render(); } };
       else if(act==='toggle-archive') el.onclick=e=>{ e.stopPropagation(); const b=state.bills.find(b=>b.id===id); if(b){ b.archived=!b.archived; if(!b.archived){ b.manualActive=false; } state.expandedIds.delete(id); render(); } };
@@ -1876,9 +1916,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='ef-planned') el.onchange=e=>updEditField('planned',e.target.value===''?0:Number(e.target.value));
       else if(act==='ef-dueday') el.onchange=e=>updEditField('dueDay',e.target.value===''?null:Number(e.target.value));
       else if(act==='ef-autopay') el.onchange=e=>updEditField('autopay',e.target.checked);
-      else if(act==='ef-autopay-toggle') el.onclick=()=>updEditField('autopay',!state.editingBill.autopay);
+      else if(act==='ef-autopay-toggle') el.onclick=()=>{ lastToggleAnim='ef-autopay-toggle'; updEditField('autopay',!state.editingBill.autopay); };
       else if(act==='ef-active') el.onchange=e=>updEditField('active',e.target.checked);
-      else if(act==='ef-active-toggle') el.onclick=()=>updEditField('active',!state.editingBill.active);
+      else if(act==='ef-active-toggle') el.onclick=()=>{ lastToggleAnim='ef-active-toggle'; updEditField('active',!state.editingBill.active); };
       else if(act==='ef-pinned') el.onchange=e=>updEditField('pinned',e.target.checked);
     });
     document.querySelectorAll('[data-stop="1"]').forEach(el=>{ el.onclick=e=>e.stopPropagation(); el.onmousedown=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation(); });
@@ -1944,6 +1984,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if (tab === activeTab) return;
     activeTab = tab;
     renderApp();
+    const root = document.getElementById('root');
+    if (root) {
+      root.classList.remove('screen-enter');
+      void root.offsetWidth; // restart the animation even if the class never left the DOM
+      root.classList.add('screen-enter');
+    }
   }
 
   /* ── Bottom tab bar — a sibling of #root, not something re-rendered inside it, so it
@@ -1955,6 +2001,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const nav = document.createElement('nav');
     nav.id = 'bottom-nav';
     nav.innerHTML = `
+      <div id="bnav-indicator" class="no-anim"></div>
       <button class="bnav-tab" data-tab="overview">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
         <span>Overview</span>
@@ -1982,9 +2029,21 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     });
   }
   function updateBottomNavActive(){
+    let activeBtn=null;
     document.querySelectorAll('#bottom-nav .bnav-tab').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === activeTab);
+      const isActive = btn.dataset.tab === activeTab;
+      btn.classList.toggle('active', isActive);
+      if (isActive) activeBtn = btn;
     });
+    const indicator = document.getElementById('bnav-indicator');
+    if (indicator && activeBtn) {
+      indicator.style.width = activeBtn.offsetWidth + 'px';
+      indicator.style.transform = `translateX(${activeBtn.offsetLeft}px)`;
+      if (indicator.classList.contains('no-anim')) {
+        // First paint: land in position with no slide-in from the left edge.
+        requestAnimationFrame(() => indicator.classList.remove('no-anim'));
+      }
+    }
   }
 
   /* ── Overview tab — real data only. Uses the same checkSummary() the home list and detail
@@ -2558,7 +2617,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         </div>`;
     }
 
-    return `<div data-act="import-review-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+    return `<div data-act="import-review-bg" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:460px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
           <div style="font-size:10px;color:#5b6577;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">"${escHtml(ui.filename)}"</div>
@@ -2786,7 +2845,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const p=computeMovePreview();
     if(!p) return '';
     const { src, dest, destOptions, moving, already, destNewBalance, srcNewBalance }=p;
-    return `<div data-act="move-tx-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+    return `<div data-act="move-tx-bg" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:110;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
           <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">MOVE TRANSACTIONS</div>
@@ -3051,7 +3110,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const utilColor = util >= 80 ? '#f87171' : util >= 50 ? '#e8b565' : '#34d399';
       const accent = NETWORK_COLOR[c.network] || '#8b96a8';
       return `
-      <div data-act="view-card" data-card-id="${c.id}" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
+      <div data-act="view-card" data-card-id="${c.id}" class="tap-card" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
         <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${accent};"></div>
         <div style="display:flex;align-items:baseline;justify-content:space-between;">
           <div style="display:flex;align-items:center;gap:7px;min-width:0;">
@@ -3686,7 +3745,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     if(!ea) return '';
     const isNew=!app.investments.find(a=>a.id===ea.id);
     const c=ACCOUNT_TYPE_COLOR[ea.accountType]||'#34d399';
-    return `<div data-act="investment-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+    return `<div data-act="investment-modal-bg" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">${isNew?'+ NEW ACCOUNT':'EDIT ACCOUNT'}</div>
@@ -3792,7 +3851,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     ` : sortInvestments(filteredAccounts, investUi.sortBy).map(a=>{
       const c=ACCOUNT_TYPE_COLOR[a.accountType]||'#8b96a8';
       return `
-      <div data-act="edit-investment" data-investment-id="${a.id}" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
+      <div data-act="edit-investment" data-investment-id="${a.id}" class="tap-card" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
         <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${c};"></div>
         <div style="display:flex;align-items:center;gap:8px;">
           ${institutionLogoTile(a.institution)}
@@ -3888,7 +3947,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const el=loanUi.editingLoan;
     if(!el) return '';
     const isNew=!app.loans.find(l=>l.id===el.id);
-    return `<div data-act="loan-modal-bg" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
+    return `<div data-act="loan-modal-bg" class="modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto;">
       <div data-stop-modal="1" class="modal-card" style="background:#101827;border:1px solid rgba(148,163,184,.22);border-radius:10px;padding:18px;max-width:440px;width:100%;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
           <div style="font-size:11px;letter-spacing:.12em;color:#eef2f8;font-weight:500;">${isNew?'+ NEW LOAN':'EDIT LOAN'}</div>
@@ -4011,7 +4070,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       const barColor = l.paid ? '#34d399' : '#f0a500';
       const accent = LOAN_TYPE_COLOR[l.category] || '#8b96a8';
       return `
-      <div data-act="edit-loan" data-loan-id="${l.id}" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
+      <div data-act="edit-loan" data-loan-id="${l.id}" class="tap-card" style="position:relative;padding:14px 16px 14px 19px;border:1px solid rgba(148,163,184,.14);border-radius:10px;margin-bottom:10px;cursor:pointer;overflow:hidden;">
         <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:${accent};"></div>
         <div style="display:flex;align-items:center;gap:8px;">
           ${institutionLogoTile(l.lender)}
