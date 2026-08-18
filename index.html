@@ -1443,7 +1443,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
         ${field('NAME',`<input type="text" data-act="ef-name" data-focus-key="ef-name" value="${escAttr(eb.name||'')}" placeholder="e.g. Netflix" class="ef" />`)}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           ${field('CATEGORY',`<select data-act="ef-type" class="ef">${TYPES.map(t=>`<option value="${t}" ${eb.type===t?'selected':''}>${t}</option>`).join('')}</select>`)}
-          ${field('BANK',`<input type="text" data-act="ef-bank" data-focus-key="ef-bank" value="${escAttr(eb.bank||'')}" placeholder="e.g. Chase" class="ef" />`)}
+          ${field('BANK',`<input type="text" list="bank-suggestions" data-act="ef-bank" data-focus-key="ef-bank" value="${escAttr(eb.bank||'')}" placeholder="e.g. Chase" class="ef" />
+            <datalist id="bank-suggestions">${Array.from(new Set(state.bills.map(b=>(b.bank||'').trim()).filter(Boolean))).sort().map(bk=>`<option value="${escAttr(bk)}"></option>`).join('')}</datalist>`)}
           ${field('FULL AMOUNT',`<input type="number" min="0" step="0.01" data-act="ef-amount" data-focus-key="ef-amount" value="${eb.baseAmount}" class="ef" />`)}
           ${field('FREQUENCY',`<select data-act="ef-freq" class="ef">${FREQUENCIES.map(f=>`<option value="${f}" ${eb.frequency===f?'selected':''}>${f}</option>`).join('')}</select>`)}
           ${field('DUE DAY (1–31)',`<input type="number" min="1" max="31" data-act="ef-dueday" data-focus-key="ef-dueday" value="${eb.dueDay==null?'':eb.dueDay}" placeholder="—" class="ef" />`)}
@@ -1633,7 +1634,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     const ccByBankMap={};
     activeBills.filter(b=>b.type==='CC').forEach(b=>{
       const bank=(b.bank||'').trim()||'Other';
-      const g=ccByBankMap[bank]||(ccByBankMap[bank]={bank,total:0,count:0,allPaid:true});
+      const key=bank.toLowerCase();
+      const g=ccByBankMap[key]||(ccByBankMap[key]={bank,total:0,count:0,allPaid:true});
       g.total+=Number(b.planned||0); g.count++;
       if(!b.paid) g.allPaid=false;
     });
