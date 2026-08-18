@@ -619,6 +619,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       filters: new Set(), search: '', searchOpen: false, paidFilter: 'all',
       expandedIds: new Set(), editingIncome: false, editingBill: null,
       confirmingDelete: false, deletingCheckId: null, overviewExpanded: false,
+      byBankView: false,
     };
   }
 
@@ -871,6 +872,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       paidFilter: ui.paidFilter, expandedIds: ui.expandedIds,
       editingIncome: ui.editingIncome, editingBill: ui.editingBill,
       confirmingDelete: ui.confirmingDelete, overviewExpanded: ui.overviewExpanded,
+      byBankView: ui.byBankView,
     };
   }
 
@@ -885,6 +887,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
     ui.paidFilter = state.paidFilter; ui.editingIncome = state.editingIncome;
     ui.editingBill = state.editingBill; ui.confirmingDelete = state.confirmingDelete;
     ui.overviewExpanded = state.overviewExpanded;
+    ui.byBankView = state.byBankView;
     saveApp();
   }
 
@@ -1741,7 +1744,18 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
             </div>
           </div>
           `}
-          ${bankTotals.length ? `
+          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+            <button data-act="toggle-search" style="background:${state.search||state.searchOpen?'#22d3ee18':'transparent'};border:1px solid ${state.search||state.searchOpen?'#22d3ee55':'rgba(148,163,184,.22)'};color:${state.search||state.searchOpen?'#22d3ee':'#8b96a8'};width:36px;height:36px;border-radius:8px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+            </button>
+            ${state.searchOpen||state.search?`<input placeholder="Search…" data-act="set-search" data-focus-key="search" value="${escAttr(state.search)}" class="di" style="flex:1;" />`:'<div style="flex:1;"></div>'}
+            <div style="display:flex;gap:6px;flex-shrink:0;align-items:center;">
+              ${['all','paid'].map(f=>`<button data-act="paid-chip" data-filter="${f}" class="fchip ${state.paidFilter===f?'on':''}">${f[0].toUpperCase()+f.slice(1)}</button>`).join('')}
+              <div style="width:1px;height:18px;background:rgba(148,163,184,.18);margin:0 2px;"></div>
+              <button data-act="toggle-by-bank" class="fchip ${state.byBankView?'on':''}">By Bank</button>
+            </div>
+          </div>
+          ${state.byBankView&&bankTotals.length ? `
           <div style="margin-bottom:12px;">
             <div style="font-size:9px;color:#8b96a8;letter-spacing:.1em;margin-bottom:6px;">DUE BY BANK</div>
             <div class="hscroll" style="display:flex;gap:8px;">
@@ -1754,16 +1768,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
               `).join('')}
             </div>
           </div>
+          ` : state.byBankView ? `
+          <div style="padding:16px;text-align:center;color:#5b6577;font-size:11px;border:1px dashed rgba(148,163,184,.18);border-radius:10px;margin-bottom:12px;">No active bills have a bank set.</div>
           ` : ''}
-          <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
-            <button data-act="toggle-search" style="background:${state.search||state.searchOpen?'#22d3ee18':'transparent'};border:1px solid ${state.search||state.searchOpen?'#22d3ee55':'rgba(148,163,184,.22)'};color:${state.search||state.searchOpen?'#22d3ee':'#8b96a8'};width:36px;height:36px;border-radius:8px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
-            </button>
-            ${state.searchOpen||state.search?`<input placeholder="Search…" data-act="set-search" data-focus-key="search" value="${escAttr(state.search)}" class="di" style="flex:1;" />`:'<div style="flex:1;"></div>'}
-            <div style="display:flex;gap:6px;flex-shrink:0;">
-              ${['all','unpaid','paid'].map(f=>`<button data-act="paid-chip" data-filter="${f}" class="fchip ${state.paidFilter===f?'on':''}">${f[0].toUpperCase()+f.slice(1)}</button>`).join('')}
-            </div>
-          </div>
           <div style="border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:10px 10px 6px;margin-bottom:16px;background:#070b14;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding-left:4px;gap:8px;flex-wrap:wrap;">
               <div style="font-size:10px;color:#eef2f8;letter-spacing:.08em;font-weight:500;">ACTIVE <span style="color:#8b96a8;margin-left:6px;">${activeBills.length} bills</span></div>
@@ -1846,6 +1853,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
       else if(act==='set-search') el.oninput=e=>{ state.search=e.target.value; render(); };
       else if(act==='set-paid-filter') el.onchange=e=>{ state.paidFilter=e.target.value; render(); };
       else if(act==='paid-chip') el.onclick=()=>{ state.paidFilter=el.dataset.filter; render(); };
+      else if(act==='toggle-by-bank') el.onclick=()=>{ state.byBankView=!state.byBankView; render(); };
       else if(act==='planned'){
         el.onchange=e=>{ const b=state.bills.find(b=>b.id===id); if(b) b.planned=e.target.value===''?0:Number(e.target.value); render(); };
         el.onclick=e=>e.stopPropagation(); el.onmousedown=e=>e.stopPropagation(); el.onpointerdown=e=>e.stopPropagation();
